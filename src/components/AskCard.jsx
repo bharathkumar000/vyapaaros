@@ -1,32 +1,26 @@
 import React, { useState } from 'react';
 
-export default function AskCard({ selectedBranchId, onAnswerReceived }) {
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
+const SVG = {
+  Mic: () => (
+    <svg viewBox="0 0 24 24">
+      <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+      <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8" />
+    </svg>
+  ),
+  Send: () => (
+    <svg viewBox="0 0 24 24">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  )
+};
 
-  const handleSearch = async (searchQuery) => {
+export default function AskCard({ onNavigateToChatbot }) {
+  const [query, setQuery] = useState('');
+
+  const handleSearch = (searchQuery) => {
     if (!searchQuery.trim()) return;
-    setLoading(true);
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branchId: selectedBranchId,
-          query: searchQuery
-        })
-      });
-      const data = await response.json();
-      onAnswerReceived(data);
-    } catch (err) {
-      console.error("Error querying Business Brain: ", err);
-      onAnswerReceived({
-        title: "Connection Error",
-        body: "Could not connect to the VyapaarOS Business Brain server. Please verify the backend is running."
-      });
-    } finally {
-      setLoading(false);
-    }
+    onNavigateToChatbot(searchQuery);
   };
 
   const handleKeyDown = (e) => {
@@ -36,10 +30,8 @@ export default function AskCard({ selectedBranchId, onAnswerReceived }) {
   };
 
   const triggerVoiceSimulation = () => {
-    // Simulated Voice prompt (mix of Kannada and English)
-    const voiceQuery = "Ramesh: How much money do I need to pay suppliers this week? (Kannada translation input)";
     setQuery("How much money do I need to pay suppliers this week?");
-    handleSearch("cash flow"); // queries cash flow endpoint trigger
+    handleSearch("How much money do I need to pay suppliers this week?");
   };
 
   return (
@@ -52,29 +44,26 @@ export default function AskCard({ selectedBranchId, onAnswerReceived }) {
         <div className="ask-box">
           <button 
             id="mic" 
-            title="Ask by voice (Kannada, Hindi, Tamil, Telugu, Marathi or English)" 
+            title="Ask by voice (Kannada/English)" 
             onClick={triggerVoiceSimulation}
-            disabled={loading}
-          >
-            {loading ? '◴' : '⌁'}
-          </button>
-          
-          <input 
-            id="question" 
-            placeholder="Ask anything about your business in Kannada/English..." 
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={loading}
-          />
+           >
+             <SVG.Mic />
+           </button>
+           
+           <input 
+             id="question" 
+             placeholder="Ask anything about your business in Kannada or English..." 
+             value={query}
+             onChange={(e) => setQuery(e.target.value)}
+             onKeyDown={handleKeyDown}
+           />
           
           <button 
             id="send" 
             aria-label="Send"
             onClick={() => handleSearch(query)}
-            disabled={loading}
           >
-            ↗
+            <SVG.Send />
           </button>
         </div>
         
@@ -90,9 +79,6 @@ export default function AskCard({ selectedBranchId, onAnswerReceived }) {
           </button>
           <button onClick={() => { setQuery("What should I do?"); handleSearch("What should I do?"); }}>
             What should I do?
-          </button>
-          <button onClick={() => { setQuery("ಎಷ್ಟು GST ಕೊಡಬೇಕು?"); handleSearch("GST payable"); }}>
-            ಎಷ್ಟು GST ಕೊಡಬೇಕು?
           </button>
         </div>
       </div>

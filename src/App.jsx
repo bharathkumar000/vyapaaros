@@ -3,12 +3,18 @@ import Sidebar from './components/Sidebar';
 import AskCard from './components/AskCard';
 import Dashboard from './components/Dashboard';
 import BusinessBrain from './components/BusinessBrain';
-import DigitalTwin from './components/DigitalTwin';
+
 import AIAuditor from './components/AIAuditor';
 import BusinessDNA from './components/BusinessDNA';
 import TimeMachine from './components/TimeMachine';
 import Autopilot from './components/Autopilot';
 import CommandCenter from './components/CommandCenter';
+import Billing from './components/Billing';
+import Inventory from './components/Inventory';
+import Books from './components/Books';
+import Bookings from './components/Bookings';
+import Profile from './components/Profile';
+import Chatbot from './components/Chatbot';
 
 export default function App() {
   const [currentView, setView] = useState('today');
@@ -16,6 +22,7 @@ export default function App() {
   const [selectedBranchId, setSelectedBranchId] = useState('branch-1');
   const [branchState, setBranchState] = useState(null);
   const [aiAnswer, setAiAnswer] = useState(null);
+  const [chatbotQuery, setChatbotQuery] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch branches and initial state
@@ -77,6 +84,11 @@ export default function App() {
     }
   };
 
+  const handleAskToChatbot = (query) => {
+    setChatbotQuery(query);
+    setView('chatbot');
+  };
+
   const handleCloneComplete = (newBranchId, updatedBranchesList) => {
     setBranches(updatedBranchesList);
     setSelectedBranchId(newBranchId);
@@ -102,10 +114,8 @@ export default function App() {
         return (
           <>
             <AskCard 
-              selectedBranchId={selectedBranchId} 
-              onAnswerReceived={(answer) => setAiAnswer(answer)} 
+              onNavigateToChatbot={handleAskToChatbot}
             />
-            <CommandCenter branchState={branchState} onAsk={(answer) => setAiAnswer(answer)} />
             <Dashboard 
               branchState={branchState}
               selectedBranchId={selectedBranchId}
@@ -113,13 +123,23 @@ export default function App() {
               onResolveAction={handleResolveAction}
               aiAnswer={aiAnswer}
               onCloseAnswer={() => setAiAnswer(null)}
+              setView={setView}
             />
+            <CommandCenter branchState={branchState} onAsk={(answer) => setAiAnswer(answer)} />
           </>
+        );
+      case 'billing':
+        return (
+          <Billing 
+            selectedBranchId={selectedBranchId} 
+            branchState={branchState} 
+            onStateUpdate={(state) => setBranchState(state)} 
+            setView={setView}
+          />
         );
       case 'brain':
         return <BusinessBrain branchState={branchState} />;
-      case 'twin':
-        return <DigitalTwin selectedBranchId={selectedBranchId} branchState={branchState} />;
+
       case 'audit':
         return <AIAuditor branchState={branchState} onResolveAction={handleResolveAction} />;
       case 'dna':
@@ -128,16 +148,41 @@ export default function App() {
         return <TimeMachine />;
       case 'autopilot':
         return <Autopilot />;
-      case 'books':
+      case 'inventory':
         return (
-          <section className="centered-view">
-            <div className="empty-books">
-              <span>▤</span>
-              <h2>Books, without the bookkeeping</h2>
-              <p>Your invoices, payments and GST records are kept continuously up to date by the Business Brain.</p>
-              <button className="primary" onClick={() => setView('today')}>View financial summary</button>
-            </div>
-          </section>
+          <Inventory 
+            selectedBranchId={selectedBranchId} 
+            branchState={branchState} 
+            onStateUpdate={(state) => setBranchState(state)} 
+          />
+        );
+      case 'books':
+      case 'ledger':
+        return (
+          <Books 
+            selectedBranchId={selectedBranchId} 
+            branchState={branchState} 
+            onStateUpdate={(state) => setBranchState(state)} 
+          />
+        );
+      case 'bookings':
+        return (
+          <Bookings 
+            selectedBranchId={selectedBranchId} 
+            branchState={branchState} 
+            onStateUpdate={(state) => setBranchState(state)} 
+          />
+        );
+      case 'profile':
+        return <Profile branchState={branchState} />;
+      case 'chatbot':
+        return (
+          <Chatbot 
+            selectedBranchId={selectedBranchId} 
+            branchState={branchState} 
+            initialQuery={chatbotQuery}
+            onQueryHandled={() => setChatbotQuery(null)}
+          />
         );
       default:
         return <div>View not found</div>;
@@ -148,10 +193,11 @@ export default function App() {
     switch (currentView) {
       case 'today':
         return "Good morning, Ramesh";
+      case 'billing':
+        return "Smart AI Billing Counter";
       case 'brain':
         return "Business Connections";
-      case 'twin':
-        return "Digital Twin Dashboard";
+
       case 'audit':
         return "AI Audit Log";
       case 'dna':
@@ -160,8 +206,17 @@ export default function App() {
         return "Business Time Machine";
       case 'autopilot':
         return "AI Agent Autopilot";
+      case 'inventory':
+        return "Inventory Control";
       case 'books':
-        return "Financial Books";
+      case 'ledger':
+        return "Ledger & Books";
+      case 'bookings':
+        return "Advance Bookings";
+      case 'profile':
+        return "Proprietor Profile & Settings";
+      case 'chatbot':
+        return "AI Assistant Chatbot";
       default:
         return "VyapaarOS";
     }
@@ -182,14 +237,15 @@ export default function App() {
         <header>
           <div>
             <p className="eyebrow">WEDNESDAY, 30 JULY</p>
-            <h1>
-              {getActiveViewTitle()} <span className="wave">✳</span>
-            </h1>
+            <h1>{getActiveViewTitle()}</h1>
           </div>
           <div className="header-right">
             <span className="sync"><i></i> All systems live</span>
             <button className="icon-button" aria-label="Notifications">
-              ♢<em>{branchState ? branchState.actions.length : 0}</em>
+              <svg viewBox="0 0 24 24" style={{ width: '16px', height: '16px', fill: 'none', stroke: 'currentColor', strokeWidth: '2px' }}>
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+              </svg>
+              <em>{branchState ? branchState.actions.length : 0}</em>
             </button>
           </div>
         </header>

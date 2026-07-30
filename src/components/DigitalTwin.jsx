@@ -1,11 +1,39 @@
 import React, { useState } from 'react';
 
+const SVG = {
+  Twin: () => (
+    <svg viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  ),
+  Restock: () => (
+    <svg viewBox="0 0 24 24" style={{ width: '12px', height: '12px', strokeWidth: '2.5px', display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+      <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+    </svg>
+  ),
+  Price: () => (
+    <svg viewBox="0 0 24 24" style={{ width: '12px', height: '12px', strokeWidth: '2.5px', display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  ),
+  Hire: () => (
+    <svg viewBox="0 0 24 24" style={{ width: '12px', height: '12px', strokeWidth: '2.5px', display: 'inline-block', verticalAlign: 'middle', marginRight: '4px' }}>
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+    </svg>
+  )
+};
+
 export default function DigitalTwin({ selectedBranchId, branchState }) {
   const [activeTab, setActiveTab] = useState('restock'); // 'restock' | 'price' | 'hire'
   const [qty, setQty] = useState(500);
   const [leadTime, setLeadTime] = useState('5 days');
   const [priceIncrease, setPriceIncrease] = useState(5);
   const [salary, setSalary] = useState(12000);
+  const [leadOpen, setLeadOpen] = useState(false);
   
   const [simulationResult, setSimulationResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -36,7 +64,7 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    setSimulationResult(null); // Reset outputs when changing tabs
+    setSimulationResult(null);
   };
 
   return (
@@ -54,19 +82,19 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
             className={`sim-tab-btn ${activeTab === 'restock' ? 'active' : ''}`}
             onClick={() => handleTabChange('restock')}
           >
-            📦 Restock Grains
+            <SVG.Restock /> Restock Grains
           </button>
           <button 
             className={`sim-tab-btn ${activeTab === 'price' ? 'active' : ''}`}
             onClick={() => handleTabChange('price')}
           >
-            📈 Price Hike (5%)
+            <SVG.Price /> Price Hike (5%)
           </button>
           <button 
             className={`sim-tab-btn ${activeTab === 'hire' ? 'active' : ''}`}
             onClick={() => handleTabChange('hire')}
           >
-            💼 Hire Assistant
+            <SVG.Hire /> Hire Assistant
           </button>
         </div>
       </div>
@@ -83,11 +111,72 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
               </div>
 
               <label>Supplier Lead Time</label>
-              <select value={leadTime} onChange={(e) => setLeadTime(e.target.value)}>
-                <option value="5 days">⚡ 5 days (Annapoorna Standard)</option>
-                <option value="8 days">⏳ 8 days (Backup Supplier - Delayed)</option>
-                <option value="12 days">🐢 12 days (Monsoon / Logistics delay)</option>
-              </select>
+              <div style={{ position: 'relative', width: '100%', marginBottom: '22px' }}>
+                <div 
+                  onClick={() => setLeadOpen(!leadOpen)}
+                  style={{ 
+                    width: '100%', 
+                    height: '42px', 
+                    border: '1px solid var(--line-primary)', 
+                    borderRadius: '7px', 
+                    padding: '0 12px', 
+                    background: 'white', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--ink-primary)'
+                  }}
+                >
+                  <span>
+                    {leadTime === '5 days' ? '5 days (Annapoorna Standard)' : ''}
+                    {leadTime === '8 days' ? '8 days (Backup Supplier - Delayed)' : ''}
+                    {leadTime === '12 days' ? '12 days (Logistics delay)' : ''}
+                  </span>
+                  <span style={{ fontSize: '8px', color: 'var(--ink-secondary)' }}>▼</span>
+                </div>
+                {leadOpen && (
+                  <div 
+                    style={{ 
+                      position: 'absolute', 
+                      top: '46px', 
+                      left: 0, 
+                      right: 0, 
+                      background: 'white', 
+                      border: '1px solid var(--line-primary)', 
+                      borderRadius: '7px', 
+                      boxShadow: 'var(--shadow-md)', 
+                      zIndex: 20
+                    }}
+                  >
+                    {[
+                      { val: '5 days', label: '5 days (Annapoorna Standard)' },
+                      { val: '8 days', label: '8 days (Backup Supplier - Delayed)' },
+                      { val: '12 days', label: '12 days (Logistics delay)' }
+                    ].map(opt => (
+                      <div 
+                        key={opt.val}
+                        onClick={() => {
+                          setLeadTime(opt.val);
+                          setLeadOpen(false);
+                        }}
+                        style={{ 
+                          padding: '10px 12px', 
+                          cursor: 'pointer', 
+                          fontSize: '11px',
+                          background: opt.val === leadTime ? 'var(--brand-light)' : 'transparent',
+                          color: opt.val === leadTime ? 'var(--brand-primary)' : 'var(--ink-primary)',
+                          fontWeight: opt.val === leadTime ? 700 : 500
+                        }}
+                      >
+                        {opt.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>
           )}
 
@@ -99,7 +188,7 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
                 <b>{priceIncrease} %</b>
                 <button onClick={() => setPriceIncrease(p => Math.min(25, p + 1))}>+</button>
               </div>
-              <p style={{ fontSize: '9px', color: '#71807e', lineHeight: 1.4, marginBottom: '22px' }}>
+              <p style={{ fontSize: '9.5px', color: 'var(--ink-secondary)', lineHeight: 1.4, marginBottom: '22px' }}>
                 Simulates grain price increase. The AI models customer volume retention curves and competitor price matches in Bangalore region.
               </p>
             </>
@@ -113,23 +202,23 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
                 <b>₹ {salary.toLocaleString('en-IN')}</b>
                 <button onClick={() => setSalary(s => s + 1000)}>+</button>
               </div>
-              <p style={{ fontSize: '9px', color: '#71807e', lineHeight: 1.4, marginBottom: '22px' }}>
+              <p style={{ fontSize: '9.5px', color: 'var(--ink-secondary)', lineHeight: 1.4, marginBottom: '22px' }}>
                 Hires a local runner to fulfill online WhatsApp home-delivery requests. Simulates delivery coverage and sales runway.
               </p>
             </>
           )}
 
           <button className="primary" onClick={runSimulation} disabled={loading}>
-            {loading ? 'Running simulation...' : '📊 Run Twin Simulation'}
+            {loading ? 'Running simulation...' : 'Run Twin Simulation'}
           </button>
         </div>
 
         <div className="sim-result">
           {simulationResult ? (
             <>
-              <span className="sim-icon">
-                {simulationResult.status === 'recommended' ? '✦' : '⚠️'}
-              </span>
+              <div className="sim-icon">
+                <SVG.Twin />
+              </div>
               <h3>Projected Results</h3>
               <p className="result-stat">
                 {activeTab === 'restock' ? `₹${simulationResult.cost.toLocaleString('en-IN')} cost` : ''}
@@ -147,13 +236,15 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
                   <>Projected Sales margin: <b>{simulationResult.margins}%</b>. Delivery coverage: <b>3.5km radius</b>.</>
                 )}
               </p>
-              <p style={{ color: simulationResult.status === 'warning' ? '#d9534f' : '#2e7d32', fontWeight: 600, fontSize: '10.5px' }}>
+              <p style={{ color: simulationResult.status === 'warning' ? 'var(--state-danger)' : 'var(--state-success)', fontWeight: 700, fontSize: '10.5px' }}>
                 {simulationResult.message}
               </p>
             </>
           ) : (
             <>
-              <span className="sim-icon">◌</span>
+              <div className="sim-icon">
+                <SVG.Twin />
+              </div>
               <h3>Ready to simulate</h3>
               <p>Choose a target scenario to forecast margins, cash runways, and business growth before you spend real capital.</p>
             </>
