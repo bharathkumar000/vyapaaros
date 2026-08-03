@@ -1110,37 +1110,16 @@ h1 {
 
 .login-logo-row {
   display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 14px;
   margin-bottom: 48px;
 }
 
-.login-logo-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #3fd3ae, #1e6c5c);
-  color: #051a16;
-  font-weight: 800;
-  font-size: 24px;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 8px 24px rgba(47, 191, 156, 0.35);
-  transition: transform 0.3s ease;
-}
-
-.login-logo-mark:hover {
-  transform: rotate(5deg) scale(1.05);
-}
-
-.login-logo-name {
-  font-weight: 800;
-  font-size: 22px;
-  letter-spacing: -0.02em;
-}
-
-.login-logo-name span {
-  color: #3fd3ae;
+.login-logo-img {
+  width: 200px;
+  height: auto;
+  max-width: 100%;
+  display: block;
 }
 
 .login-eyebrow {
