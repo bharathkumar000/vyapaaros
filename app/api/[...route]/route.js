@@ -1,36 +1,217 @@
 import { createDefaultBranch, initialBranchesData } from '../../../src/mockData';
+import {
+  seedUsers,
+  findByUsername,
+  verifyPassword,
+  signToken,
+  authenticate,
+  isAdmin,
+  guardBranchAccess,
+} from '../../../src/server/auth';
+import { auditRoute } from '../../../src/server/audit';
+import { loadBranchState, saveBranchState, listBranches } from '../../../src/server/db';
 
 // This prototype keeps its sample business data in memory. Refreshed: 2026-07-30
+// When Supabase is configured (SUPABASE_URL + SUPABASE_ANON_KEY), every branch is
+// live-fetched from Postgres and every mutation is persisted back to it. The
+// in-memory copy acts as an offline/fallback cache only.
 let branches = structuredClone(initialBranchesData);
 let branchCounter = 1;
+seedUsers(Object.keys(branches));
 
 const json = (data, status = 200) => Response.json(data, { status });
-const branchFor = (id) => branches[id || 'branch-1'];
+const branchFor = async (id) => {
+  if (id != null && !BRANCH_ID_RE.test(String(id))) return undefined;
+  const branchId = id || 'branch-1';
+  const fromDb = await loadBranchState(branchId);
+  if (fromDb) {
+    branches[branchId] = fromDb;
+    return fromDb;
+  }
+  return branches[branchId];
+};
+
+// ---- Security helpers -------------------------------------------------------
+const MAX_BODY_BYTES = 100 * 1024;      // reject payloads over 100 KB
+const MAX_STRING_LEN = 500;             // cap user-supplied strings
+const BRANCH_ID_RE = /^branch-\d+$/;
+
+const clientIp = (request) => {
+  const fwd = request.headers.get('x-forwarded-for');
+  if (fwd) {
+    const first = fwd.split(',')[0].trim();
+    if (first) return first;
+  }
+  return request.headers.get('x-real-ip') || 'unknown';
+};
+
+const clean = (value, max = MAX_STRING_LEN) =>
+  typeof value === 'string' ? value.trim().slice(0, max) : '';
+
+const toNum = (value, fallback = 0, min = 0) => {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return fallback;
+  return Math.max(min, n);
+};
+
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// ---- Rate limiting (in-memory, fixed window) --------------------------------
+const RATE_LIMITS = {
+  GET: { windowMs: 60_000, max: 120 },
+  POST: { windowMs: 60_000, max: 60 },
+};
+const LOGIN_LIMITS = { windowMs: 60_000, max: 20 };
+const rateBuckets = new Map();
+
+const rateLimit = (request, scope = request.method) => {
+  const limits = scope === 'login' ? LOGIN_LIMITS : RATE_LIMITS;
+  const { windowMs, max } = limits[request.method] || limits.GET || limits;
+  const key = `${scope}:${clientIp(request)}`;
+  const now = Date.now();
+
+  if (rateBuckets.size > 10_000) {
+    for (const [bucketKey, bucket] of rateBuckets) {
+      if (now >= bucket.resetAt) rateBuckets.delete(bucketKey);
+    }
+  }
+
+  const bucket = rateBuckets.get(key);
+  const fresh = bucket && bucket.resetAt > now;
+  const resetAt = fresh ? bucket.resetAt : now + windowMs;
+  const count = fresh ? bucket.count + 1 : 1;
+  rateBuckets.set(key, { count, resetAt });
+
+  if (count > max) return { limited: true, retryAfter: Math.ceil((resetAt - now) / 1000) };
+  return { limited: false, remaining: max - count };
+};
+
+const tooManyRequests = (retryAfter) =>
+  new Response(JSON.stringify({ error: 'Too many requests. Please slow down and retry.' }), {
+    status: 429,
+    headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) },
+  });
+
+const parseBody = async (request) => {
+  const raw = await request.text();
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BODY_BYTES) {
+    return { error: 'Payload too large', status: 413 };
+  }
+  if (!raw.trim()) return { body: {} };
+  try {
+    const parsed = JSON.parse(raw);
+    return isPlainObject(parsed) ? { body: parsed } : { error: 'Invalid JSON payload', status: 400 };
+  } catch {
+    return { error: 'Invalid JSON payload', status: 400 };
+  }
+};
+
+// Persist a mutated branch to Postgres, then return it to the client.
+// Persistence failures never break the demo — the in-memory state still wins.
+const persist = async (branch) => {
+  try {
+    await saveBranchState(branch);
+  } catch (err) {
+    console.error('[db] save failed (continuing with in-memory state):', err.message);
+  }
+  return branch;
+};
+const respond = async (branch) => json(await persist(branch));
+const respondWrapped = async (branch) => json({ success: true, branch: await persist(branch) });
 
 export async function GET(request, { params }) {
   const { route } = await params;
   const pathname = route.join('/');
   const { searchParams } = new URL(request.url);
 
+  const limit = rateLimit(request);
+  if (limit.limited) return tooManyRequests(limit.retryAfter);
+
+  const auth = authenticate(request);
+  if (auth.error) return json({ error: auth.error }, auth.status);
+  const { user } = auth;
+
   if (pathname === 'branches') {
-    return json(Object.entries(branches).map(([id, branch]) => ({ id, name: branch.name })));
+    const dbList = await listBranches();
+    const memoryList = Object.entries(branches).map(([id, branch]) => ({ id, name: branch.name }));
+    const list = (dbList && dbList.length > 0) ? dbList : memoryList;
+    const visible = list.filter((b) => isAdmin(user) || user.branchIds?.includes(b.id));
+    return json(visible);
   }
   if (pathname === 'state') {
-    const branch = branchFor(searchParams.get('branchId'));
+    const branchId = searchParams.get('branchId');
+    const denied = guardBranchAccess(request, user, branchId, 'access.denied');
+    if (denied) return json({ error: denied.error }, denied.status);
+    const branch = await branchFor(branchId);
     return branch ? json(branch) : json({ error: 'Branch not found' }, 404);
   }
   return json({ error: 'Not found' }, 404);
 }
 
+const handleLogin = async (request) => {
+  const { body, error, status } = await parseBody(request);
+  if (error) return json({ error }, status);
+
+  const username = clean(body.username, 64);
+  const password = String(body.password ?? '');
+
+  const demoUser = process.env.ADMIN_USERNAME || '1';
+  const demoPass = process.env.ADMIN_PASSWORD || '1';
+  const isDemoLogin = username === demoUser && password === demoPass;
+
+  if (!isDemoLogin) {
+    const limit = rateLimit(request, 'login');
+    if (limit.limited) return tooManyRequests(limit.retryAfter);
+  }
+
+  const user = findByUsername(username);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    auditRoute('auth.login_failed', request, null, { username });
+    return json({ error: 'Invalid username or password' }, 401);
+  }
+
+  const token = signToken(user);
+  auditRoute('auth.login_success', request, user, {});
+  return json({
+    token,
+    user: { id: user.id, username: user.username, role: user.role, branchIds: user.branchIds },
+  });
+};
+
 export async function POST(request, { params }) {
   const { route } = await params;
   const pathname = route.join('/');
-  const body = await request.json();
-  const branch = branchFor(body.branchId);
+
+  if (pathname === 'login') {
+    return handleLogin(request);
+  }
+
+  const limit = rateLimit(request);
+  if (limit.limited) return tooManyRequests(limit.retryAfter);
+
+  const { body, error, status } = await parseBody(request);
+  if (error) return json({ error }, status);
+
+  const auth = authenticate(request);
+  if (auth.error) return json({ error: auth.error }, auth.status);
+  const { user } = auth;
+
+  if (pathname === 'clone' && !isAdmin(user)) {
+    auditRoute('access.denied', request, user, { path: pathname });
+    return json({ error: 'Forbidden' }, 403);
+  }
+
+  const branch = await branchFor(body.branchId);
+  if (pathname !== 'clone' && !isAdmin(user)) {
+    const denied = guardBranchAccess(request, user, body.branchId, 'access.denied');
+    if (denied) return json({ error: denied.error }, denied.status);
+  }
 
   if (pathname === 'action/resolve') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const priorityIndex = branch.actions.findIndex((action) => action.id === body.actionId);
+    const actionId = clean(body.actionId, 64);
+    auditRoute('action.resolve', request, user, { branchId: body.branchId, actionId });
+    const priorityIndex = branch.actions.findIndex((action) => action.id === actionId);
     if (priorityIndex !== -1) {
       const action = branch.actions.splice(priorityIndex, 1)[0];
       if (action.type === 'audit' || action.title.includes('duplicate')) {
@@ -43,7 +224,7 @@ export async function POST(request, { params }) {
         branch.metrics.cashInBank -= 29000;
       }
     }
-    const audit = branch.audits.find((item) => item.id === body.actionId);
+    const audit = branch.audits.find((item) => item.id === actionId);
     if (audit) {
       audit.resolved = true;
       if (audit.id === 'audit-1') {
@@ -51,12 +232,15 @@ export async function POST(request, { params }) {
         branch.metrics.cashInBank += 28500;
       }
     }
-    return json(branch);
+    return respond(branch);
   }
 
   if (pathname === 'simulate') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { scenario, qty, priceIncrease, salary } = body;
+    const scenario = clean(body.scenario, 32);
+    const qty = toNum(body.qty);
+    const priceIncrease = toNum(body.priceIncrease);
+    const salary = toNum(body.salary);
 
     if (scenario === 'price') {
       const increase = priceIncrease || 5;
@@ -99,17 +283,22 @@ export async function POST(request, { params }) {
 
   if (pathname === 'billing') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { totalAmount, paymentMode, items, customer = 'Walk-in customer' } = body;
-    
+    const totalAmount = toNum(body.totalAmount);
+    const paymentMode = clean(body.paymentMode, 20);
+    const customer = clean(body.customer) || 'Walk-in customer';
+    const items = Array.isArray(body.items) ? body.items.slice(0, 200) : [];
+
+    auditRoute('billing.create', request, user, { branchId: body.branchId, amount: totalAmount, mode: paymentMode });
+
     branch.metrics.salesThisMonth += totalAmount;
-    
+
     if (paymentMode === 'Credit') {
       branch.metrics.customersOwe += totalAmount;
       branch.metrics.oweChange = `${branch.actions.filter(a => a.type === 'overdue').length + 1} invoices overdue`;
       if (!branch.receivables) branch.receivables = [];
       branch.receivables.unshift({
         id: `rec-${Date.now()}`,
-        name: body.customer || "Walk-in Customer",
+        name: customer,
         amount: totalAmount,
         dueDate: "15 Aug 2026",
         phone: "+91 99001 22334",
@@ -121,11 +310,13 @@ export async function POST(request, { params }) {
       branch.cashFlow.net += totalAmount;
     }
 
-    if (items && Array.isArray(items)) {
+    if (items.length > 0) {
       items.forEach(line => {
-        const product = branch.inventory.find(p => p.id === line.productId);
+        const productId = clean(line && line.productId, 64);
+        const quantity = toNum(line && line.quantity);
+        const product = branch.inventory.find(p => p.id === productId);
         if (product) {
-          product.stock = Math.max(0, product.stock - line.quantity);
+          product.stock = Math.max(0, product.stock - quantity);
           if (product.stock < product.safetyLimit) {
             const hasAlert = branch.actions.some(a => a.id === `action-low-${product.id}`);
             if (!hasAlert) {
@@ -153,17 +344,19 @@ export async function POST(request, { params }) {
       total: totalAmount,
       status: paymentMode === 'Credit' ? 'Due' : 'Paid',
       gst: totalAmount - taxableValue,
-      items: (items || []).map((line) => {
-        const product = branch.inventory.find((item) => item.id === line.productId);
-        return { name: product?.name || 'Product', quantity: line.quantity, unit: product?.unit || 'unit' };
+      items: items.map((line) => {
+        const product = branch.inventory.find((item) => item.id === clean(line && line.productId, 64));
+        return { name: product?.name || 'Product', quantity: toNum(line && line.quantity), unit: product?.unit || 'unit' };
       })
     });
-    return json(branch);
+    return respond(branch);
   }
 
   if (pathname === 'inventory/add') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { productId, quantity } = body;
+    const productId = clean(body.productId, 64);
+    const quantity = toNum(body.quantity);
+    auditRoute('inventory.add', request, user, { branchId: body.branchId, productId, quantity });
     
     const product = branch.inventory.find(p => p.id === productId);
     if (product) {
@@ -183,12 +376,158 @@ export async function POST(request, { params }) {
     }
 
     branch.metrics.inventoryValue = branch.inventory.reduce((sum, item) => sum + (item.stock * item.cost), 0);
-    return json({ success: true, branch });
+    return respondWrapped(branch);
+  }
+
+  if (pathname === 'orders/check') {
+    if (!branch) return json({ error: 'Branch not found' }, 404);
+    const items = Array.isArray(body.items) ? body.items.slice(0, 50) : [];
+
+    const lines = [];
+    let totalCost = 0;
+    for (const line of items) {
+      const productId = clean(line && line.productId, 64);
+      const quantity = toNum(line && line.quantity);
+      const product = branch.inventory.find((p) => p.id === productId);
+      if (!product || quantity <= 0) continue;
+
+      const cost = product.cost * quantity;
+      totalCost += cost;
+      const marginPct = product.price > 0 ? Math.round(((product.price - product.cost) / product.price) * 100) : 0;
+      const low = product.stock < product.safetyLimit;
+      const overStock = product.stock > product.safetyLimit * 4;
+
+      let flag = 'ok';
+      let note = `Healthy margin of ${marginPct}%. Stock ${product.stock} ${product.unit} (safety limit ${product.safetyLimit} ${product.unit}).`;
+      if (low) {
+        flag = 'low-stock';
+        note = `Low stock (${product.stock} / ${product.safetyLimit} ${product.unit}). Restocking is a priority.`;
+      } else if (overStock) {
+        flag = 'overstock';
+        note = `Already high stock (${product.stock} ${product.unit}). Consider trimming the quantity to avoid tying up cash.`;
+      } else if (marginPct < 10) {
+        flag = 'thin-margin';
+        note = `Thin margin (~${marginPct}%). Recheck retail pricing before buying more.`;
+      }
+      lines.push({ productId, name: product.name, quantity, unit: product.unit, total: cost, margin: marginPct, stock: product.stock, safetyLimit: product.safetyLimit, flag, note });
+    }
+
+    if (lines.length === 0) return json({ error: 'No valid items in order' }, 400);
+
+    const cash = branch.metrics.cashInBank || 0;
+    const budgetOk = totalCost <= cash;
+    const cashLeft = cash - totalCost;
+
+    const supplierTips = [];
+    for (const line of lines) {
+      if (line.productId === 'p-1') supplierTips.push('Annapoorna Distributors: ₹62/kg rice, 3% volume discount above 500 kg.');
+      else if (line.productId === 'p-2') supplierTips.push('Sunrise Edible Oils: ₹135/L, 4% UPI discount on 24h settlement.');
+      else if (line.productId === 'p-5') supplierTips.push('Golden Sugar Mill: ₹41/kg, Net 15 with 2% prompt-payment discount.');
+    }
+
+    let score = 100;
+    const issues = [];
+    if (!budgetOk) {
+      score -= 25;
+      issues.push(`Total cost ₹${totalCost.toLocaleString('en-IN')} exceeds cash in bank ₹${cash.toLocaleString('en-IN')}.`);
+    }
+    for (const line of lines) {
+      if (line.flag === 'overstock') { score -= 15; issues.push(`${line.name}: already over-stocked, add in smaller lots.`); }
+      if (line.flag === 'thin-margin') { score -= 10; issues.push(`${line.name}: thin margin (${line.margin}%).`); }
+      if (line.flag === 'low-stock') score += 5;
+    }
+    score = Math.max(0, Math.min(100, Math.round(score)));
+    const status = score >= 80 ? 'recommended' : score >= 55 ? 'caution' : 'warning';
+
+    return json({
+      success: true,
+      score,
+      status,
+      totalCost,
+      cash,
+      cashLeft,
+      budgetOk,
+      issues,
+      supplierTips,
+      lines,
+      summary:
+        score >= 80
+          ? `Good purchase. Order worth ₹${totalCost.toLocaleString('en-IN')} fits the budget with ₹${cashLeft.toLocaleString('en-IN')} left in bank.`
+          : score >= 55
+            ? `Decent, but review the ${issues.length} flagged point(s) before confirming.`
+            : `Not recommended as-is. Fix the flagged issues or trim quantities.`,
+    });
+  }
+
+  if (pathname === 'orders/create') {
+    if (!branch) return json({ error: 'Branch not found' }, 404);
+    const items = Array.isArray(body.items) ? body.items.slice(0, 50) : [];
+    const supplier = clean(body.supplier, 120);
+
+    let totalCost = 0;
+    const lines = [];
+    for (const line of items) {
+      const productId = clean(line && line.productId, 64);
+      const quantity = toNum(line && line.quantity);
+      const product = branch.inventory.find((p) => p.id === productId);
+      if (!product || quantity <= 0) continue;
+
+      product.stock += quantity;
+      totalCost += quantity * product.cost;
+      lines.push({ productId, name: product.name, quantity, unit: product.unit, cost: product.cost });
+
+      if (product.stock >= product.safetyLimit) {
+        branch.actions = branch.actions.filter((a) => a.id !== `action-low-${product.id}`);
+        if (productId === 'p-1') branch.actions = branch.actions.filter((a) => a.id !== 'action-2');
+      }
+    }
+    if (totalCost <= 0 || lines.length === 0) return json({ error: 'No valid items in order' }, 400);
+
+    branch.metrics.cashInBank = Math.max(0, branch.metrics.cashInBank - totalCost);
+    branch.cashFlow.outflow += totalCost;
+    branch.cashFlow.net -= totalCost;
+    branch.metrics.inventoryValue = branch.inventory.reduce((sum, item) => sum + (item.stock * item.cost), 0);
+
+    const order = {
+      id: `ORD-${Date.now()}`,
+      date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      supplier: supplier || 'Multiple suppliers',
+      totalCost,
+      itemCount: lines.length,
+      status: 'placed',
+      timeline: [{ at: 'Now', label: 'Order placed' }],
+      items: lines,
+    };
+    branch.orders ||= [];
+    branch.orders.unshift(order);
+
+    auditRoute('orders.create', request, user, { branchId: body.branchId, orderId: order.id, totalCost, items: lines.length });
+    return respondWrapped(branch);
+  }
+
+  if (pathname === 'orders/advance') {
+    if (!branch) return json({ error: 'Branch not found' }, 404);
+    const orderId = clean(body.orderId, 64);
+    const order = branch.orders?.find((o) => o.id === orderId);
+    if (!order) return json({ error: 'Order not found' }, 404);
+
+    const STEPS = ['placed', 'confirmed', 'packed', 'in_transit', 'delivered'];
+    const idx = STEPS.indexOf(order.status);
+    if (idx >= 0 && idx < STEPS.length - 1) {
+      order.status = STEPS[idx + 1];
+      order.timeline = [
+        ...(order.timeline || []),
+        { at: 'Now', label: order.status.replace('_', ' ') },
+      ];
+    }
+    auditRoute('orders.advance', request, user, { branchId: body.branchId, orderId, status: order.status });
+    return respondWrapped(branch);
   }
 
   if (pathname === 'receivables/collect') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { receivableId } = body;
+    const receivableId = clean(body.receivableId, 64);
+    auditRoute('receivables.collect', request, user, { branchId: body.branchId, receivableId });
 
     const recList = branch.receivables || [];
     const receivable = recList.find(r => r.id === receivableId);
@@ -218,12 +557,13 @@ export async function POST(request, { params }) {
         }
       }
     }
-    return json({ success: true, branch });
+    return respondWrapped(branch);
   }
 
   if (pathname === 'payables/pay') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { payableId } = body;
+    const payableId = clean(body.payableId, 64);
+    auditRoute('payables.pay', request, user, { branchId: body.branchId, payableId });
 
     const payList = branch.payables || [];
     const payable = payList.find(p => p.id === payableId);
@@ -235,14 +575,19 @@ export async function POST(request, { params }) {
       branch.cashFlow.outflow += amount;
       branch.cashFlow.net -= amount;
     }
-    return json({ success: true, branch });
+    return respondWrapped(branch);
   }
 
   if (pathname === 'bookings/create') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { name, productId, quantity, deliveryDate, advance } = body;
+    const name = clean(body.name, 120);
+    const productId = clean(body.productId, 64);
+    const quantity = toNum(body.quantity);
+    const deliveryDate = clean(body.deliveryDate, 40);
+    const advance = toNum(body.advance);
     const product = branch.inventory.find(p => p.id === productId);
     if (!product) return json({ error: 'Product not found' }, 404);
+    auditRoute('bookings.create', request, user, { branchId: body.branchId, productId, quantity, advance });
 
     const newBooking = {
       id: `bk-${Date.now()}`,
@@ -271,7 +616,8 @@ export async function POST(request, { params }) {
 
   if (pathname === 'bookings/deliver') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { bookingId } = body;
+    const bookingId = clean(body.bookingId, 64);
+    auditRoute('bookings.deliver', request, user, { branchId: body.branchId, bookingId });
     const booking = branch.bookings?.find(b => b.id === bookingId);
     if (booking && booking.status !== 'delivered') {
       const product = branch.inventory.find(p => p.id === booking.productId);
@@ -311,13 +657,13 @@ export async function POST(request, { params }) {
 
       booking.status = 'delivered';
     }
-    return json({ success: true, branch });
+    return respondWrapped(branch);
   }
 
   if (pathname === 'bookings/check-ai') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const { productId, quantity } = body;
-    const qtyVal = Number(quantity) || 0;
+    const productId = clean(body.productId, 64);
+    const qtyVal = toNum(body.quantity);
     
     const product = branch.inventory.find(p => p.id === productId);
     if (!product) return json({ error: 'Product not found' }, 404);
@@ -328,30 +674,23 @@ export async function POST(request, { params }) {
     let message = "";
     let dealerAdvice = "";
 
-    if (product.id === 'p-1') {
-      message = `Inventory Status: You have ${product.stock} kg of Sona Masoori Rice. Booking ${qtyVal} kg leaves you with ${stockLeft} kg. `;
-      if (stockLeft < product.safetyLimit) {
-        message += `WARNING: This drops stock levels below your safety threshold limit of ${product.safetyLimit} kg. You will need to restock immediately.`;
-      } else {
-        message += `This is safe and maintains a healthy safety reserve of ${stockLeft} kg (limit: ${product.safetyLimit} kg).`;
-      }
-      dealerAdvice = `Supplier Deal Insight: Annapoorna Distributors is your standard supplier at ₹54/kg. However, Golden Sugar Mill packages Rice orders occasionally. For Sona Masoori Rice, Annapoorna is offering a 3% volume discount on purchases exceeding 500 kg, and Sri Ghee Packers provides a 5% discount if bundled with Ghee orders.`;
-    } else if (product.id === 'p-2') {
-      message = `Inventory Status: You have ${product.stock} liters of Premium Ghee. Booking ${qtyVal} liters leaves you with ${stockLeft} liters. `;
-      if (stockLeft < product.safetyLimit) {
-        message += `WARNING: This drops stock levels below your safety threshold limit of ${product.safetyLimit} liters.`;
-      } else {
-        message += `This is safe and maintains a healthy safety reserve of ${stockLeft} liters (limit: ${product.safetyLimit} liters).`;
-      }
-      dealerAdvice = `Supplier Deal Insight: Sri Ghee Packers is your primary supplier at ₹580/liter. They offer an active 4% discount if settled via UPI transfer within 24 hours of delivery. Annapoorna Distributors also has premium ghee available at a standard price of ₹590/liter with no active discounts.`;
+    const pLabel = product.name;
+    const pUnit = product.unit || 'units';
+    message = `Inventory Status: You have ${product.stock} ${pUnit} of ${pLabel}. Booking ${qtyVal} ${pUnit} leaves you with ${stockLeft} ${pUnit}. `;
+    if (stockLeft < product.safetyLimit) {
+      message += `WARNING: This drops stock levels below your safety threshold limit of ${product.safetyLimit} ${pUnit}. You will need to restock immediately.`;
     } else {
-      message = `Inventory Status: You have ${product.stock} kg of Refined Sugar. Booking ${qtyVal} kg leaves you with ${stockLeft} kg. `;
-      if (stockLeft < product.safetyLimit) {
-        message += `WARNING: This drops stock levels below your safety threshold limit of ${product.safetyLimit} kg.`;
-      } else {
-        message += `This is safe and maintains a healthy safety reserve of ${stockLeft} kg (limit: ${product.safetyLimit} kg).`;
-      }
-      dealerAdvice = `Supplier Deal Insight: Golden Sugar Mill is your main sugar supplier at ₹36/kg. They currently offer standard Net 15 credit terms. Annapoorna Distributors can supply Refined Sugar at ₹38/kg with a 2% prompt-payment discount on cash purchases.`;
+      message += `This is safe and maintains a healthy safety reserve of ${stockLeft} ${pUnit} (limit: ${product.safetyLimit} ${pUnit}).`;
+    }
+
+    if (product.id === 'p-1') {
+      dealerAdvice = `Supplier Deal Insight: Annapoorna Distributors is your standard rice supplier at ₹62/kg. They are offering a 3% volume discount on purchases exceeding 500 kg of India Gate Sona Masoori Rice.`;
+    } else if (product.id === 'p-2') {
+      dealerAdvice = `Supplier Deal Insight: Sunrise Edible Oils is your primary supplier at ₹135/L. They offer an active 4% discount if settled via UPI within 24 hours of delivery.`;
+    } else if (product.id === 'p-5') {
+      dealerAdvice = `Supplier Deal Insight: Golden Sugar Mill is your main sugar supplier at ₹41/kg. They currently offer standard Net 15 credit terms with a 2% prompt-payment discount on cash purchases.`;
+    } else {
+      dealerAdvice = `Supplier Deal Insight: Check latest rates with your regular supplier for ${pLabel}. Order in bulk to unlock volume discounts and keep margins healthy.`;
     }
 
     return json({
@@ -367,107 +706,138 @@ export async function POST(request, { params }) {
   if (pathname === 'clone') {
     branchCounter += 1;
     const id = `branch-${branchCounter}`;
-    const cloned = createDefaultBranch(id, body.name, {
-      pricingMarkup: Number(body.pricingMarkup), safetyStockDays: Number(body.safetyStockDays),
-      supplierDelayDays: Number(body.supplierDelayDays), alertSensitivity: body.alertSensitivity,
+    const name = clean(body.name, 120) || 'New Branch';
+    auditRoute('branch.clone', request, user, { newBranchId: id, name });
+    const cloned = createDefaultBranch(id, name, {
+      pricingMarkup: toNum(body.pricingMarkup, 20),
+      safetyStockDays: toNum(body.safetyStockDays, 30),
+      supplierDelayDays: toNum(body.supplierDelayDays, 5),
+      alertSensitivity: clean(body.alertSensitivity, 20),
       cashInBank: 250000, salesThisMonth: 150000, customersOwe: 45000, inventoryValue: 120000,
       inflow: 300000, outflow: 200000, net: 100000,
     });
-    cloned.actions = [{ id: 'action-clone-1', type: 'stock', title: 'Safety stock check: OK', desc: `Safety stock maintained at ${body.safetyStockDays} days.`, severity: 'low' }];
+    cloned.actions = [{ id: 'action-clone-1', type: 'stock', title: 'Safety stock check: OK', desc: `Safety stock maintained at ${toNum(body.safetyStockDays, 30)} days.`, severity: 'low' }];
     branches[id] = cloned;
+    await persist(cloned);
     return json({ success: true, branchId: id, branches: Object.entries(branches).map(([branchId, value]) => ({ id: branchId, name: value.name })) });
   }
 
   if (pathname === 'upload') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
+    const fileType = clean(body.fileType, 20);
+    auditRoute('upload.process', request, user, { branchId: body.branchId, fileType });
     const updates = {
-      whatsapp: () => { branch.metrics.salesThisMonth += 35000; branch.metrics.customersOwe += 35000; return 'Extracted WhatsApp order: 600kg Sona Masoori Rice from Ramesh G. (₹35,000). Linked to product and invoice records.'; },
+      whatsapp: () => { branch.metrics.salesThisMonth += 35000; branch.metrics.customersOwe += 35000; return 'Extracted WhatsApp order: 600kg India Gate Sona Masoori Rice from Ramesh G. (₹35,000). Linked to product and invoice records.'; },
       upi: () => { branch.metrics.cashInBank += 47800; branch.metrics.customersOwe = Math.max(0, branch.metrics.customersOwe - 47800); return 'Reconciled UPI payment from Mahaveer Stores. Cash in Bank increased and the outstanding balance was updated.'; },
       invoice: () => { branch.metrics.inventoryValue += 88000; return 'Processed supplier bill from Annapoorna Distributors. Inventory value and payment terms have been updated.'; },
       bank: () => { branch.cashFlow.inflow += 120000; branch.cashFlow.net += 120000; branch.metrics.cashInBank += 120000; return 'Imported bank statement: 24 payments matched and your cash buffer has been updated.'; },
       excel: () => { branch.metrics.inventoryValue = 890000; branch.actions = branch.actions.filter((action) => action.type !== 'stock'); return 'Synced inventory sheet: 342 active items updated and the rice reorder warning was dismissed.'; },
     };
-    return json({ message: updates[body.fileType]?.() || 'File processed.', branch });
+    const message = updates[fileType]?.() || 'File processed.';
+    return json({ message, branch: await persist(branch) });
   }
 
   if (pathname === 'chat') {
     if (!branch) return json({ error: 'Branch not found' }, 404);
-    const q = (body.query || '').toLowerCase();
+    const query = clean(body.query, 300);
+    const q = query.toLowerCase();
 
-    if (!branch.chatMemory) {
-      branch.chatMemory = {
-        history: [],
-        lastTopic: null,
-        topics: new Set()
+    const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+    const products = branch.inventory || [];
+    const receivables = branch.receivables || [];
+    const payables = branch.payables || [];
+
+    const TYPE_WORDS = new Set(['sona', 'masoori', 'rice', 'sunflower', 'oil', 'sharbati', 'atta', 'toor', 'dal', 'refined', 'sugar', 'salt', 'onion', 'potato', 'tomato', 'banana', 'taaza', 'milk', 'masti', 'curd', 'butter', 'red', 'chilli', 'turmeric', 'powder', 'maggi', 'masala', 'noodles', 'gold', 'biscuits', 'matic', 'detergent', 'bath', 'soap', 'tea', 'classic', 'coffee', 'maxfresh', 'toothpaste', 'robusta']);
+    const brandOf = (name) => {
+      const words = name.toLowerCase().split(/\s+/);
+      let end = 0;
+      for (let i = 0; i < words.length; i += 1) {
+        if (TYPE_WORDS.has(words[i])) { end = i; break; }
+      }
+      return end > 0 ? name.split(/\s+/).slice(0, end).join(' ') : name.split(/\s+/)[0];
+    };
+
+    const supplierFor = (p) => {
+      const map = {
+        'p-1': 'Annapoorna Distributors (₹62/kg)',
+        'p-2': 'Sunrise Edible Oils (₹135/L)',
+        'p-5': 'Golden Sugar Mill (₹41/kg)',
       };
-    }
+      return map[p.id] || 'your regular supplier';
+    };
 
-    const memory = branch.chatMemory;
-    const prev = memory.history.length > 0 ? memory.history[memory.history.length - 1] : null;
+    const findProduct = () => {
+      const tokens = q.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(t => t.length > 2);
+      let best = null;
+      let bestScore = 0;
+      for (const p of products) {
+        const words = p.name.toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+        let score = 0;
+        for (const t of tokens) {
+          if (words.some(w => w === t || w.startsWith(t) || t.startsWith(w))) score += 1;
+        }
+        if (score > bestScore) { bestScore = score; best = p; }
+      }
+      return bestScore > 0 ? best : null;
+    };
 
-    const isFollowUp = /^(tell me more|what about|more details|explain|how|why|what else|and|but|however|also)/.test(q)
-      || /(it|that|those|they|this|them|there|the other)/.test(q);
+    const isPayable = /\b(payable|we owe|i owe|supplier.*due|pay.*supplier|bill.*due|to pay)\b/.test(q);
+    const isOwedToMe = /\b(owe|owed|due|receivable|debt|recover|khata|baki|customer.*pay)\b/.test(q);
+    const isFlow = /\b(flow|inflow|outflow|coming in|going out|net)\b/.test(q);
+    const isCash = /\b(cash|balance|bank|money|fund|wallet|have|own)\b/.test(q);
+    const isStockHealth = /\b(stock|restock|low|shortage|short|run out|empty|reorder)\b/.test(q);
+    const isGst = /\b(gst|tax)\b/.test(q);
+    const isSales = /\b(sales|sold|revenue|billing)\b/.test(q);
+    const isProfit = /\b(profit|margin|earn|return)\b/.test(q);
+    const isAll = /\b(all|everything|summary|snapshot|overview|whole|full|data)\b/.test(q);
+    const wantsSupplier = /\b(where|get|buy|source|supplier|dealer|procure)\b/.test(q);
+    const wantsStock = /\b(stock|left|available|how many|quantity)\b/.test(q);
 
+    const product = findProduct();
     let response;
 
-    if (q.includes('gst') || q.includes('tax')) {
-      memory.lastTopic = 'gst';
-      memory.topics.add('gst');
-      response = { title: 'Estimated GST payable: ₹39,294', body: 'Based on invoices currently awaiting payment, your GST liability is ₹39,294 at the 18% slab. This is an operating estimate; review the final return with your accountant before filing.' };
-    } else if (q.includes('profit') || q.includes('rice') || q.includes('margin') || q.includes('kannada')) {
-      memory.lastTopic = 'rice';
-      memory.topics.add('rice');
-      response = { title: 'Rice margins are down by 3.2%', body: `For ${branch.name}, Sona Masoori Rice purchase cost rose 8% while its retail price stayed flat. It is your highest-volume SKU, so it explains 64% of this month’s margin contraction. Recommendation: raise the retail price to ₹66/kg or unlock a supplier discount.` };
-    } else if (q.includes('owe') || q.includes('due') || q.includes('money') || q.includes('customer')) {
-      memory.lastTopic = 'debt';
-      memory.topics.add('debt');
-      response = { title: `Outstanding debt: ₹${branch.metrics.customersOwe.toLocaleString('en-IN')}`, body: 'You have 8 overdue invoices. Mahaveer Stores is the largest at ₹47,800, overdue by 21 days. Three customers account for ₹84,200 overdue by more than 15 days.' };
-    } else if (q.includes('cash') || q.includes('low') || q.includes('why') || q.includes('flow')) {
-      memory.lastTopic = 'cashflow';
-      memory.topics.add('cashflow');
-      response = { title: 'Cash flow and upcoming dues', body: `Inflow is ₹${branch.cashFlow.inflow.toLocaleString('en-IN')} and outflow is ₹${branch.cashFlow.outflow.toLocaleString('en-IN')}, leaving +₹${branch.cashFlow.net.toLocaleString('en-IN')}. You have ₹3.1L of supplier payments due in five days and ₹${branch.metrics.customersOwe.toLocaleString('en-IN')} locked in receivables.` };
-    } else if (isFollowUp && prev) {
-      if (q.includes('more') || q.includes('else') || q.includes('another') || q.includes('other')) {
-        memory.topics.delete(memory.lastTopic);
-        const remaining = [...memory.topics].filter(t => t !== memory.lastTopic);
-        if (remaining.length > 0) {
-          const next = remaining[0];
-          memory.lastTopic = next;
-          if (next === 'gst') {
-            response = { title: 'Estimated GST payable: ₹39,294', body: 'Based on invoices currently awaiting payment, your GST liability is ₹39,294 at the 18% slab. This is an operating estimate; review the final return with your accountant before filing.' };
-          } else if (next === 'rice') {
-            response = { title: 'Rice margins are down by 3.2%', body: `For ${branch.name}, Sona Masoori Rice purchase cost rose 8% while its retail price stayed flat. It is your highest-volume SKU, so it explains 64% of this month’s margin contraction. Recommendation: raise the retail price to ₹66/kg or unlock a supplier discount.` };
-          } else if (next === 'debt') {
-            response = { title: `Outstanding debt: ₹${branch.metrics.customersOwe.toLocaleString('en-IN')}`, body: 'You have 8 overdue invoices. Mahaveer Stores is the largest at ₹47,800, overdue by 21 days. Three customers account for ₹84,200 overdue by more than 15 days.' };
-          } else if (next === 'cashflow') {
-            response = { title: 'Cash flow and upcoming dues', body: `Inflow is ₹${branch.cashFlow.inflow.toLocaleString('en-IN')} and outflow is ₹${branch.cashFlow.outflow.toLocaleString('en-IN')}, leaving +₹${branch.cashFlow.net.toLocaleString('en-IN')}. You have ₹3.1L of supplier payments due in five days and ₹${branch.metrics.customersOwe.toLocaleString('en-IN')} locked in receivables.` };
-          } else {
-            response = { title: 'Business Brain active', body: `I’m connecting customers, invoices, UPI settlements, products, suppliers and GST for ${branch.name}. Ask about cash flow, receivables, profit, or your next stock decision.` };
-          }
-        } else {
-          response = { title: 'All topics covered', body: `That's all the insights I have for ${branch.name} right now. Feel free to ask about any specific area you'd like to explore further.` };
-        }
+    if (product && wantsSupplier) {
+      response = { title: product.name.split(' (')[0], body: `Get from ${supplierFor(product)}. Price ${inr(product.price)}/${product.unit}. Stock ${product.stock} ${product.unit}.` };
+    } else if (product && wantsStock) {
+      const flag = product.stock < product.safetyLimit ? 'LOW' : 'OK';
+      response = { title: `${product.name.split(' (')[0]}: ${flag}`, body: `${product.stock} ${product.unit} in stock (limit ${product.safetyLimit}). Price ${inr(product.price)}/${product.unit}.` };
+    } else if (product) {
+      response = { title: `${product.name.split(' (')[0]} — ${inr(product.price)}/${product.unit}`, body: `Brand ${brandOf(product.name)}. Cost ${inr(product.cost)}. Stock ${product.stock} ${product.unit}. ${product.gst} GST. Get from ${supplierFor(product)}.` };
+    } else if (isStockHealth) {
+      const low = products.filter(p => p.stock < p.safetyLimit);
+      if (low.length === 0) {
+        response = { title: 'Stock healthy', body: 'All products above safety limit.' };
       } else {
-        const topic = memory.lastTopic;
-        if (topic === 'gst') {
-          response = { title: 'More about GST', body: `Your GST liability of ₹39,294 is spread across 12 unpaid invoices. The largest is ₹12,400 from last month's B2B sale. I recommend setting aside this amount before the 20th to avoid late fees.` };
-        } else if (topic === 'rice') {
-          response = { title: 'Deeper rice margin analysis', body: `Sona Masoori purchase cost rose from ₹48/kg to ₹52/kg. At current ₹60/kg retail, your margin is 13.3%, down from 20%. A ₹6/kg hike would restore margins. Competitors in the area sell at ₹64-68/kg.` };
-        } else if (topic === 'debt') {
-          response = { title: 'Debt recovery details', body: `Breakdown of top 3 overdue customers: 1) Mahaveer Stores ₹47,800 (21 days overdue), 2) Sri Durga Enterprises ₹22,400 (18 days), 3) Anand Rice Mill ₹14,000 (12 days). Sending reminders now could recover 70% within a week.` };
-        } else if (topic === 'cashflow') {
-          response = { title: 'Cash flow breakdown', body: `Your inflows total ₹${(branch.cashFlow.inflow).toLocaleString('en-IN')} from sales and collections. Outflows include supplier payments ₹3.1L, wages ₹86K, and GST ₹39K. Net positive ₹${(branch.cashFlow.net).toLocaleString('en-IN')}, but 5 large supplier bills are due soon.` };
-        } else {
-          response = { title: 'Business Brain active', body: `I’m connecting customers, invoices, UPI settlements, products, suppliers and GST for ${branch.name}. Ask about cash flow, receivables, profit, or your next stock decision.` };
-        }
+        response = { title: `${low.length} items low on stock`, body: low.slice(0, 5).map(p => `${p.name.split(' (')[0]}: ${p.stock}${p.unit} (limit ${p.safetyLimit})`).join(' · ') };
       }
+    } else if (isPayable) {
+      const total = payables.reduce((s, p) => s + p.amount, 0);
+      const top = [...payables].sort((a, b) => b.amount - a.amount)[0];
+      response = { title: `You owe suppliers ${inr(total)}`, body: top ? `Top: ${top.name} ${inr(top.amount)} due ${top.dueDate}.` : 'No pending payables.' };
+    } else if (isOwedToMe) {
+      const total = receivables.reduce((s, r) => s + r.amount, 0);
+      const top = [...receivables].sort((a, b) => b.amount - a.amount)[0];
+      response = { title: `Customers owe you ${inr(total)}`, body: top ? `Top: ${top.name} ${inr(top.amount)} (${top.status}).` : 'No dues.' };
+    } else if (isFlow) {
+      response = { title: `Net flow +${inr(branch.cashFlow.net)}`, body: `Inflow ${inr(branch.cashFlow.inflow)} · Outflow ${inr(branch.cashFlow.outflow)}.` };
+    } else if (isCash) {
+      response = { title: `Cash in bank ${inr(branch.metrics.cashInBank)}`, body: `Sales this month ${inr(branch.metrics.salesThisMonth)} · Inventory value ${inr(branch.metrics.inventoryValue)}.` };
+    } else if (isGst) {
+      response = { title: 'GST liability ≈ ₹39,294', body: 'On 12 unpaid invoices at 18% slab. Set aside before the 20th.' };
+    } else if (isSales) {
+      response = { title: `Sales this month ${inr(branch.metrics.salesThisMonth)}`, body: `Change ${branch.metrics.salesChange}.` };
+    } else if (isProfit) {
+      response = { title: 'Rice margin down 3.2%', body: 'Top SKU margin 12.8%. Raise rice price to ₹66/kg or switch supplier.' };
+    } else if (isAll) {
+      response = {
+        title: 'Store snapshot',
+        body: `Cash ${inr(branch.metrics.cashInBank)} · Sales ${inr(branch.metrics.salesThisMonth)} · Inventory ${inr(branch.metrics.inventoryValue)} · Customers owe ${inr(receivables.reduce((s, r) => s + r.amount, 0))} · You owe suppliers ${inr(payables.reduce((s, p) => s + p.amount, 0))} · ${products.length} products.`
+      };
+    } else if (/^(hi|hello|hey|namaskara|namaste)\b/.test(q) || q.includes('how are')) {
+      response = { title: 'VyapaarOS Assistant', body: 'Ask anything: prices, brands, suppliers, stock, cash, money owed, flow, GST. Short direct answers.' };
     } else {
-      memory.lastTopic = null;
-      response = { title: 'Business Brain active', body: `I’m connecting customers, invoices, UPI settlements, products, suppliers and GST for ${branch.name}. Ask about cash flow, receivables, profit, or your next stock decision.` };
+      response = { title: 'I have all your data', body: 'Try: "price of rice", "brand of oil", "where to get rice", "cash balance", "money owed", "cash flow", "low stock".' };
     }
-
-    memory.history.push({ query: body.query, response });
-    memory.history = memory.history.slice(-20);
 
     return json(response);
   }

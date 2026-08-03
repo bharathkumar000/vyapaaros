@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { api } from '../lib/api';
 
 const SVG = {
   Send: () => (
@@ -28,7 +29,7 @@ export default function Chatbot({ selectedBranchId, branchState, initialQuery, o
       id: 'msg-0',
       sender: 'bot',
       title: 'VyapaarOS Business Assistant',
-      text: 'Namaskara! I am your AI Business Brain. I have loaded all transaction records, UPI settlements, and inventory levels for Sri Lakshmi Traders. Ask me any question about your cash flow, stock health, or customer dues!'
+      text: 'Namaskara! I am your AI Business Brain. I have loaded all transaction records, UPI settlements, and inventory levels for Sri Lakshmi Groceries. Ask me any question about your cash flow, stock health, or customer dues!'
     }
   ]);
   const [input, setInput] = useState('');
@@ -36,10 +37,10 @@ export default function Chatbot({ selectedBranchId, branchState, initialQuery, o
   const threadEndRef = useRef(null);
 
   const suggestedPrompts = [
-    'What is my cash balance?',
-    'Any duplicate payment alerts?',
-    'What is my GST liability?',
-    'How are my rice stock levels?'
+    'How much money do I have?',
+    'What is the price of rice?',
+    'Where to get Sunflower Oil?',
+    'How much do customers owe me?'
   ];
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export default function Chatbot({ selectedBranchId, branchState, initialQuery, o
         title: m.title
       }));
 
-      const response = await fetch('/api/chat', {
+      const response = await api('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

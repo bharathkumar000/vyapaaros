@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { api } from '../lib/api';
 
 const money = (amount) => `₹${Number(amount).toLocaleString('en-IN')}`;
 
@@ -29,13 +30,13 @@ export default function Books({ selectedBranchId, branchState, onStateUpdate }) 
   const [period, setPeriod] = useState('July 2026');
   const [periodOpen, setPeriodOpen] = useState(false);
   const [ledgerActionId, setLedgerActionId] = useState(null);
+  const { metrics, cashFlow } = branchState || { metrics: {}, cashFlow: {} };
+  const profit = useMemo(() => Math.max(0, (cashFlow.inflow || 0) - (cashFlow.outflow || 0)), [cashFlow]);
 
   if (!branchState) return null;
 
-  const { metrics, cashFlow } = branchState || { metrics: {}, cashFlow: {} };
   const receivables = branchState.receivables || [];
   const payables = branchState.payables || [];
-  const profit = useMemo(() => Math.max(0, (cashFlow.inflow || 0) - (cashFlow.outflow || 0)), [cashFlow]);
 
   const entries = [
     ['30 Jul', 'UPI collection · Mahaveer Stores', '+₹47,800', 'credit'],
@@ -47,7 +48,7 @@ export default function Books({ selectedBranchId, branchState, onStateUpdate }) 
   const collectReceivable = async (receivableId) => {
     setLedgerActionId(receivableId);
     try {
-      const response = await fetch('/api/receivables/collect', {
+      const response = await api('/api/receivables/collect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -69,7 +70,7 @@ export default function Books({ selectedBranchId, branchState, onStateUpdate }) 
   const paySupplier = async (payableId) => {
     setLedgerActionId(payableId);
     try {
-      const response = await fetch('/api/payables/pay', {
+      const response = await api('/api/payables/pay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +93,7 @@ export default function Books({ selectedBranchId, branchState, onStateUpdate }) 
     alert(
       `💬 VyapaarOS Auto-Compiler Reminder:\n\n` +
       `Compiled warning for ${item.name} (${item.phone}):\n` +
-      `"Namaskara, Sri Lakshmi Traders here. An invoice of ₹${item.amount.toLocaleString('en-IN')} remains outstanding (due: ${item.dueDate}). Please settle at your earliest convenience via UPI. Thank you."`
+      `"Namaskara, Sri Lakshmi Groceries here. An invoice of ₹${item.amount.toLocaleString('en-IN')} remains outstanding (due: ${item.dueDate}). Please settle at your earliest convenience via UPI. Thank you."`
     );
   };
 

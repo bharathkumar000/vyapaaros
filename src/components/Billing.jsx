@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../lib/api';
 
 /* ─── SVG Icons ─────────────────────────────────────────────── */
 const SVG = {
@@ -76,9 +77,9 @@ export default function Billing({ selectedBranchId, branchState, onStateUpdate, 
   const customerReceivable = branchState.receivables?.find(r => r.name === customer && r.status !== 'paid');
   const outstanding = customerReceivable ? customerReceivable.amount : 0;
 
-  const filteredInventory = inventory.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredInventory = inventory
+    .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const openQtyModal = (product) => {
     const existing = cart.find(item => item.productId === product.id);
@@ -143,7 +144,7 @@ export default function Billing({ selectedBranchId, branchState, onStateUpdate, 
   const executeBillingCheckout = async () => {
     setCheckingOut(true);
     try {
-      const response = await fetch('/api/billing', {
+      const response = await api('/api/billing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -289,7 +290,7 @@ export default function Billing({ selectedBranchId, branchState, onStateUpdate, 
                 <SVG.Search />
                 <input 
                   type="text" 
-                  placeholder="Search Sona Masoori, Ghee, Sugar..." 
+                  placeholder="Search rice, dal, oil, spices..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />

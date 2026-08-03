@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../lib/api';
 
 const SVG = {
   Twin: () => (
@@ -41,7 +42,7 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
   const runSimulation = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/simulate', {
+      const response = await api('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,7 +104,7 @@ export default function DigitalTwin({ selectedBranchId, branchState }) {
         <div>
           {activeTab === 'restock' && (
             <>
-              <label>Reorder Quantity: Buy Sona Masoori Rice</label>
+              <label>Reorder Quantity: Buy India Gate Sona Masoori Rice</label>
               <div className="quantity">
                 <button onClick={() => setQty(q => Math.max(100, q - 100))}>−</button>
                 <b>{qty} kg</b>

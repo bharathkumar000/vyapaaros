@@ -60,7 +60,7 @@ const RULES_INIT = [
     iconBg: '#e0f2fe',
     iconColor: '#0284c7',
     title: 'Auto-Restock Rice',
-    desc: 'When Sona Masoori Rice stock drops below 300 kg, raise a purchase order to Annapoorna Distributors for 500 kg.',
+    desc: 'When India Gate Sona Masoori Rice stock drops below 300 kg, raise a purchase order to Annapoorna Distributors for 500 kg.',
     trigger: 'Stock < 300 kg',
     action: 'Purchase Order → Annapoorna',
     lastRun: 'Yesterday, 11:42 AM',
@@ -98,7 +98,7 @@ const RULES_INIT = [
 const GOAL_STEPS = {
   'goal-1': [
     { title: 'Analyzing slow-moving SKUs', desc: 'Found 3 products below expected velocity threshold.' },
-    { title: 'Negotiating with Annapoorna', desc: 'Sent automated bulk discount request for Sona Masoori Rice.' },
+    { title: 'Negotiating with Annapoorna', desc: 'Sent automated bulk discount request for India Gate Sona Masoori Rice.' },
     { title: 'Adjusting DNA markup rules', desc: 'Set Sona Masoori margin to 14.5% automatically.' },
     { title: 'Simulation running', desc: 'Projected margin lift: +8.4% from next billing cycle.' },
   ],

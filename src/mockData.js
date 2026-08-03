@@ -38,7 +38,7 @@ export const createDefaultBranch = (id, name, overrides = {}) => {
       {
         id: "action-2",
         type: "stock",
-        title: "Restock Sona Masoori Rice",
+        title: "Restock India Gate Rice",
         desc: `Only ${dna.safetyStockDays - 2} days of stock remaining (below safety limit of ${dna.safetyStockDays} days)`,
         severity: "med"
       },
@@ -74,20 +74,32 @@ export const createDefaultBranch = (id, name, overrides = {}) => {
       }
     ],
     inventory: overrides.inventory || [
-      { id: "p-1", name: "Sona Masoori Rice", sector: "Agriculture & Grains", origin: "Karnataka", hsn: "1006", stock: 420, unit: "kg", price: 60, cost: 52, safetyLimit: 300, gst: "5%" },
-      { id: "p-2", name: "Gir Cow A2 Desi Ghee", sector: "Dairy & Cattle", origin: "Gujarat", hsn: "0405", stock: 45, unit: "liters", price: 850, cost: 720, safetyLimit: 15, gst: "12%" },
-      { id: "p-3", name: "Kashmiri Mongra Saffron", sector: "Spices & Spices Board", origin: "Jammu & Kashmir", hsn: "0910", stock: 120, unit: "grams", price: 450, cost: 380, safetyLimit: 30, gst: "5%" },
-      { id: "p-4", name: "Assam CTC Orthodox Tea", sector: "Plantation & Beverages", origin: "Assam", hsn: "0902", stock: 250, unit: "kg", price: 340, cost: 280, safetyLimit: 50, gst: "5%" },
-      { id: "p-5", name: "Kanjeevaram Handloom Silk Saree", sector: "Textiles & Handloom", origin: "Tamil Nadu", hsn: "5007", stock: 28, unit: "pcs", price: 4800, cost: 3900, safetyLimit: 10, gst: "5%" },
-      { id: "p-6", name: "Moradabad Brass Pooja Lamp", sector: "Metalware & Handicrafts", origin: "Uttar Pradesh", hsn: "8306", stock: 65, unit: "sets", price: 380, cost: 290, safetyLimit: 15, gst: "18%" },
-      { id: "p-7", name: "Ayurvedic Neem & Tulsi Soap", sector: "Ayurveda & Wellness", origin: "Kerala", hsn: "3401", stock: 500, unit: "bars", price: 45, cost: 32, safetyLimit: 100, gst: "18%" },
-      { id: "p-8", name: "Kachi Ghani Mustard Oil", sector: "Edible Oils & Processing", origin: "Rajasthan", hsn: "1514", stock: 320, unit: "liters", price: 195, cost: 160, safetyLimit: 80, gst: "5%" },
-      { id: "p-9", name: "Jaipur Blue Pottery Craft Vase", sector: "Cottage & Artisan Goods", origin: "Rajasthan", hsn: "6913", stock: 40, unit: "units", price: 650, cost: 480, safetyLimit: 10, gst: "12%" },
-      { id: "p-10", name: "Tamra Pure Copper Water Bottle", sector: "Household & Hardware", origin: "Maharashtra", hsn: "7418", stock: 85, unit: "units", price: 580, cost: 450, safetyLimit: 20, gst: "18%" }
+      { id: "p-1", name: "India Gate Sona Masoori Rice (5 kg)", sector: "Staples & Grains", origin: "Karnataka", hsn: "1006", stock: 420, unit: "kg", price: 75, cost: 62, safetyLimit: 300, gst: "5%" },
+      { id: "p-2", name: "Fortune Sunflower Oil (1 L)", sector: "Edible Oils", origin: "Maharashtra", hsn: "1512", stock: 180, unit: "L", price: 150, cost: 135, safetyLimit: 80, gst: "5%" },
+      { id: "p-3", name: "Aashirvaad Sharbati Atta (5 kg)", sector: "Staples & Grains", origin: "Madhya Pradesh", hsn: "1101", stock: 520, unit: "kg", price: 56, cost: 48, safetyLimit: 300, gst: "5%" },
+      { id: "p-4", name: "Tata Sampann Toor Dal (1 kg)", sector: "Staples & Grains", origin: "Maharashtra", hsn: "0713", stock: 60, unit: "kg", price: 185, cost: 163, safetyLimit: 80, gst: "5%" },
+      { id: "p-5", name: "Madhur Refined Sugar (1 kg)", sector: "Staples & Grains", origin: "Uttar Pradesh", hsn: "1701", stock: 340, unit: "kg", price: 47, cost: 41, safetyLimit: 150, gst: "5%" },
+      { id: "p-6", name: "Tata Salt (1 kg)", sector: "Staples & Grains", origin: "Gujarat", hsn: "2501", stock: 620, unit: "pcs", price: 30, cost: 25, safetyLimit: 200, gst: "5%" },
+      { id: "p-7", name: "Fresh Onion (loose)", sector: "Fruits & Vegetables", origin: "Maharashtra", hsn: "0703", stock: 150, unit: "kg", price: 45, cost: 38, safetyLimit: 50, gst: "5%" },
+      { id: "p-8", name: "Fresh Potato (loose)", sector: "Fruits & Vegetables", origin: "Uttar Pradesh", hsn: "0701", stock: 210, unit: "kg", price: 32, cost: 27, safetyLimit: 60, gst: "5%" },
+      { id: "p-9", name: "Fresh Tomato (loose)", sector: "Fruits & Vegetables", origin: "Karnataka", hsn: "0702", stock: 30, unit: "kg", price: 42, cost: 35, safetyLimit: 40, gst: "5%" },
+      { id: "p-10", name: "Banana (Robusta, dozen)", sector: "Fruits & Vegetables", origin: "Tamil Nadu", hsn: "0803", stock: 140, unit: "dozen", price: 48, cost: 40, safetyLimit: 40, gst: "5%" },
+      { id: "p-11", name: "Amul Taaza Milk (1 L)", sector: "Dairy & Beverages", origin: "Gujarat", hsn: "0401", stock: 130, unit: "L", price: 66, cost: 59, safetyLimit: 40, gst: "5%" },
+      { id: "p-12", name: "Amul Masti Curd (400 g)", sector: "Dairy & Beverages", origin: "Gujarat", hsn: "0403", stock: 85, unit: "pcs", price: 55, cost: 48, safetyLimit: 30, gst: "5%" },
+      { id: "p-13", name: "Amul Butter (500 g)", sector: "Dairy & Beverages", origin: "Gujarat", hsn: "0405", stock: 12, unit: "pcs", price: 285, cost: 258, safetyLimit: 15, gst: "12%" },
+      { id: "p-14", name: "Everest Red Chilli Powder (100 g)", sector: "Spices & Masala", origin: "Andhra Pradesh", hsn: "0904", stock: 320, unit: "pcs", price: 58, cost: 49, safetyLimit: 100, gst: "5%" },
+      { id: "p-15", name: "Everest Turmeric Powder (100 g)", sector: "Spices & Masala", origin: "Tamil Nadu", hsn: "0910", stock: 260, unit: "pcs", price: 48, cost: 40, safetyLimit: 90, gst: "5%" },
+      { id: "p-16", name: "Maggi Masala Noodles (12-pack)", sector: "Snacks & Instant", origin: "Delhi", hsn: "1902", stock: 50, unit: "pcs", price: 168, cost: 144, safetyLimit: 80, gst: "18%" },
+      { id: "p-17", name: "Parle-G Gold Biscuits (10-pack)", sector: "Snacks & Instant", origin: "West Bengal", hsn: "1905", stock: 800, unit: "pcs", price: 30, cost: 25, safetyLimit: 300, gst: "18%" },
+      { id: "p-18", name: "Surf Excel Matic Detergent (1 kg)", sector: "Household & Personal Care", origin: "Maharashtra", hsn: "3402", stock: 140, unit: "pcs", price: 175, cost: 158, safetyLimit: 50, gst: "18%" },
+      { id: "p-19", name: "Lifebuoy Bath Soap (155 g)", sector: "Household & Personal Care", origin: "Maharashtra", hsn: "3401", stock: 520, unit: "pcs", price: 38, cost: 32, safetyLimit: 150, gst: "18%" },
+      { id: "p-20", name: "Tata Tea Gold (250 g)", sector: "Beverages", origin: "Assam", hsn: "0902", stock: 200, unit: "pcs", price: 115, cost: 98, safetyLimit: 70, gst: "5%" },
+      { id: "p-21", name: "Nescafé Classic (100 g)", sector: "Beverages", origin: "Karnataka", hsn: "0901", stock: 45, unit: "pcs", price: 265, cost: 232, safetyLimit: 60, gst: "18%" },
+      { id: "p-22", name: "Colgate MaxFresh Toothpaste (200 g)", sector: "Household & Personal Care", origin: "Delhi", hsn: "3306", stock: 180, unit: "pcs", price: 99, cost: 85, safetyLimit: 60, gst: "18%" }
     ],
     bills: overrides.bills || [
-      { id: 'INV-2481', date: '30 Jul 2026', customer: 'Mahaveer Stores', paymentMode: 'UPI', total: 47800, status: 'Paid', gst: 7292, items: [{ name: 'Sona Masoori Rice', quantity: 600, unit: 'kg' }] },
-      { id: 'INV-2480', date: '29 Jul 2026', customer: 'Rahul', paymentMode: 'Credit', total: 12640, status: 'Due', gst: 1928, items: [{ name: 'Premium Ghee', quantity: 16, unit: 'liters' }] }
+      { id: 'INV-2481', date: '30 Jul 2026', customer: 'Mahaveer Stores', paymentMode: 'UPI', total: 47800, status: 'Paid', gst: 7292, items: [{ name: 'India Gate Sona Masoori Rice', quantity: 600, unit: 'kg' }] },
+      { id: 'INV-2480', date: '29 Jul 2026', customer: 'Rahul', paymentMode: 'Credit', total: 12640, status: 'Due', gst: 1928, items: [{ name: 'Fortune Sunflower Oil', quantity: 80, unit: 'L' }, { name: 'Aashirvaad Sharbati Atta', quantity: 40, unit: 'kg' }] }
     ],
     receivables: overrides.receivables || [
       { id: "rec-1", name: "Mahaveer Stores", amount: 47800, dueDate: "15 Jul 2026", phone: "+91 98450 12345", status: "overdue" },
@@ -96,20 +108,21 @@ export const createDefaultBranch = (id, name, overrides = {}) => {
       { id: "rec-4", name: "Rahul (Standard Retail)", amount: 51300, dueDate: "12 Aug 2026", phone: "+91 91234 56789", status: "pending" }
     ],
     payables: overrides.payables || [
-      { id: "pay-1", name: "Annapoorna Distributors", amount: 112000, dueDate: "05 Aug 2026", type: "Rice Supplier" },
-      { id: "pay-2", name: "Sri Ghee Packers", amount: 85000, dueDate: "08 Aug 2026", type: "Ghee Supplier" },
+      { id: "pay-1", name: "Annapoorna Distributors", amount: 112000, dueDate: "05 Aug 2026", type: "Rice & Staples Supplier" },
+      { id: "pay-2", name: "Sunrise Edible Oils", amount: 85000, dueDate: "08 Aug 2026", type: "Oil Supplier" },
       { id: "pay-3", name: "Golden Sugar Mill", amount: 48000, dueDate: "15 Aug 2026", type: "Sugar Supplier" }
     ],
     bookings: overrides.bookings || [
-      { id: "bk-1", name: "Mahaveer Stores", productId: "p-1", productName: "Sona Masoori Rice", quantity: 150, unit: "kg", date: "30 Jul 2026", deliveryDate: "05 Aug 2026", advance: 2000, status: "pending" },
-      { id: "bk-2", name: "Sunil Traders", productId: "p-2", productName: "Premium Ghee", quantity: 10, unit: "liters", date: "29 Jul 2026", deliveryDate: "02 Aug 2026", advance: 3000, status: "ready" }
+      { id: "bk-1", name: "Mahaveer Stores", productId: "p-1", productName: "India Gate Sona Masoori Rice", quantity: 150, unit: "kg", date: "30 Jul 2026", deliveryDate: "05 Aug 2026", advance: 2000, status: "pending" },
+      { id: "bk-2", name: "Sunil Traders", productId: "p-2", productName: "Fortune Sunflower Oil", quantity: 30, unit: "L", date: "29 Jul 2026", deliveryDate: "02 Aug 2026", advance: 3000, status: "ready" }
     ],
+    orders: overrides.orders || [],
     // Business Memory and Graph Info
     memory: {
       customer: {
         title: "Customer Memory: Rahul",
         details: [
-          "Rahul purchases Sona Masoori Rice and Sunflower Oil every month.",
+          "Rahul purchases India Gate Sona Masoori Rice and Fortune Sunflower Oil every month.",
           "Prefers premium products; responds well to early-bird festival discounts.",
           "Negotiates discounts often; delayed payment twice (average 9 days late).",
           "Spikes purchase volumes around Diwali and Pongal festivals."
@@ -132,7 +145,7 @@ export const createDefaultBranch = (id, name, overrides = {}) => {
         ]
       },
       product: {
-        title: "Product Profitability: Sona Masoori Rice",
+        title: "Product Profitability: India Gate Rice",
         details: [
           "Top selling SKU by volume. Monthly margin: 12.8%.",
           "Purchase price increased by 8% from supplier (Annapoorna).",
@@ -152,5 +165,5 @@ export const createDefaultBranch = (id, name, overrides = {}) => {
 };
 
 export const initialBranchesData = {
-  "branch-1": createDefaultBranch("branch-1", "Sri Lakshmi Traders (Main)")
+  "branch-1": createDefaultBranch("branch-1", "Sri Lakshmi Groceries (Main)")
 };

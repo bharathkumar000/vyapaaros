@@ -1,5 +1,3 @@
-import React, { useState } from 'react';
-
 /* ─── SVG Icons ─────────────────────────────────────────────── */
 const Icon = {
   Cash: () => (
@@ -112,33 +110,10 @@ function BarChart({ inflow, outflow }) {
 }
 
 /* ─── Clean Streamlined Dashboard Component ─────────────────── */
-export default function Dashboard({ branchState, selectedBranchId, onStateUpdate, onResolveAction, aiAnswer, onCloseAnswer, setView }) {
-  const [uploading, setUploading] = useState(null);
-  const [uploadMsg, setUploadMsg] = useState('');
-
+export default function Dashboard({ branchState, onResolveAction, aiAnswer, onCloseAnswer, setView }) {
   if (!branchState) return <div className="spinner" style={{ margin: '60px auto' }} />;
 
   const { metrics, cashFlow, actions } = branchState;
-
-  const handleUpload = async (fileType) => {
-    setUploading(fileType);
-    setUploadMsg('AI is processing document…');
-    setTimeout(async () => {
-      try {
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ branchId: selectedBranchId, fileType })
-        });
-        const data = await res.json();
-        setUploadMsg(data.message);
-        onStateUpdate(data.branch);
-        setTimeout(() => { setUploading(null); setUploadMsg(''); }, 2500);
-      } catch {
-        setUploading(null); setUploadMsg('');
-      }
-    }, 1200);
-  };
 
   const sparkCash = [38, 42, 39, 51, 47, 53, 58, 61, 55, 70];
   const sparkSales = [62, 70, 65, 80, 77, 88, 82, 91, 85, 95];
@@ -152,7 +127,7 @@ export default function Dashboard({ branchState, selectedBranchId, onStateUpdate
       <header className="db-hero">
         <div className="db-hero-left">
           <p className="db-greeting">{GREETING}, Ramesh 👋</p>
-          <h1 className="db-hero-title">Sri Lakshmi Traders</h1>
+          <h1 className="db-hero-title">Sri Lakshmi Groceries</h1>
           <p className="db-hero-sub">
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </p>
@@ -230,25 +205,11 @@ export default function Dashboard({ branchState, selectedBranchId, onStateUpdate
                 <div className="db-qt-icon qt-green"><Icon.Plus /></div>
                 <span>New Bill</span>
               </button>
-              <button className="db-quick-tile" onClick={() => handleUpload('upi')} disabled={!!uploading}>
-                <div className="db-qt-icon qt-purple"><Icon.Scan /></div>
-                <span>Scan UPI</span>
-              </button>
-              <button className="db-quick-tile" onClick={() => handleUpload('invoice')} disabled={!!uploading}>
-                <div className="db-qt-icon qt-orange"><Icon.Upload /></div>
-                <span>Upload Bill</span>
-              </button>
               <button className="db-quick-tile" onClick={() => setView && setView('chatbot')}>
                 <div className="db-qt-icon qt-blue"><Icon.Zap /></div>
                 <span>Ask AI</span>
               </button>
             </div>
-            {uploading && (
-              <div className="db-upload-toast">
-                <span className="spinner" />
-                <span>{uploadMsg}</span>
-              </div>
-            )}
           </section>
 
           {/* AI Priorities List */}

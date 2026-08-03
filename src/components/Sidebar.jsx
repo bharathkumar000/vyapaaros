@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 // Custom lightweight inline SVGs for premium look & feel
 const Icons = {
@@ -83,11 +83,6 @@ const Icons = {
       <polyline points="17 11 19 13 23 9" />
     </svg>
   ),
-  Bookings: () => (
-    <svg viewBox="0 0 24 24">
-      <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
-    </svg>
-  ),
   Books: () => (
     <svg viewBox="0 0 24 24">
       <path d="M5 4h14a1 1 0 011 1v15H6a2 2 0 01-2-2V5a1 1 0 011-1z" />
@@ -115,88 +110,14 @@ const Icons = {
 
 export default function Sidebar({
   currentView,
-  setView,
-  branches,
-  selectedBranchId,
-  onBranchChange,
-  actionCount
+  setView
 }) {
-  const [branchOpen, setBranchOpen] = useState(false);
-  const selectedBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
-
   return (
     <aside className="sidebar">
       <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setView('today'); }}>
         <span className="brand-mark">V</span>
         <span>Vyapaar<span>OS</span></span>
       </a>
-      
-      <div className="sidebar-branch-container">
-        <p className="business">Sri Lakshmi Traders</p>
-        
-        <div style={{ position: 'relative', width: '100%', marginBottom: '25px', zIndex: 105 }}>
-          <div 
-            onClick={() => setBranchOpen(!branchOpen)}
-            style={{ 
-              background: '#112824', 
-              border: '1px solid rgba(255, 255, 255, 0.06)', 
-              color: '#c9dedb', 
-              fontSize: '11px', 
-              fontWeight: '600', 
-              padding: '10px 12px', 
-              borderRadius: '8px', 
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer'
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center' }}>
-              <Icons.Building /> {selectedBranch?.name}
-            </span>
-            <span style={{ fontSize: '8px', color: '#718884', transition: 'transform 0.2s', transform: branchOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
-          </div>
-          {branchOpen && (
-            <div 
-              style={{ 
-                position: 'absolute', 
-                top: '42px', 
-                left: 0, 
-                right: 0, 
-                background: '#112824', 
-                border: '1px solid rgba(255, 255, 255, 0.1)', 
-                borderRadius: '8px', 
-                boxShadow: '0 4px 20px rgba(0,0,0,0.3)', 
-                zIndex: 110
-              }}
-            >
-              {branches.map(b => (
-                <div 
-                  key={b.id}
-                  onClick={() => {
-                    onBranchChange(b.id);
-                    setBranchOpen(false);
-                  }}
-                  style={{ 
-                    padding: '10px 12px', 
-                    cursor: 'pointer', 
-                    fontSize: '11px',
-                    background: b.id === selectedBranchId ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
-                    color: b.id === selectedBranchId ? '#57d4b4' : '#c9dedb',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                  onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.08)'}
-                  onMouseLeave={(e) => e.target.style.background = b.id === selectedBranchId ? 'rgba(255, 255, 255, 0.05)' : 'transparent'}
-                >
-                  <Icons.Building /> {b.name}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
 
       <nav>
         <button 
@@ -225,13 +146,6 @@ export default function Sidebar({
           onClick={() => setView('inventory')}
         >
           <Icons.Inventory /> <span>AI Inventory</span>
-        </button>
-
-        <button 
-          className={`nav-item ${currentView === 'bookings' ? 'active' : ''}`} 
-          onClick={() => setView('bookings')}
-        >
-          <Icons.Bookings /> <span>Bookings</span>
         </button>
 
         <button 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../lib/api';
 
 const SVG = {
   Info: () => (
@@ -27,7 +28,7 @@ export default function BusinessDNA({ branchState, onCloneComplete }) {
     setCloning(true);
 
     try {
-      const response = await fetch('/api/clone', {
+      const response = await api('/api/clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -74,7 +75,7 @@ export default function BusinessDNA({ branchState, onCloneComplete }) {
               <label>New Branch Name</label>
               <input 
                 type="text" 
-                placeholder="e.g. Sri Lakshmi Traders - Branch 2"
+                placeholder="e.g. Sri Lakshmi Groceries - Branch 2"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required

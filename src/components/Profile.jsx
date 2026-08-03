@@ -57,7 +57,7 @@ export default function Profile({ branchState }) {
           <div style={{ display: 'grid', gap: '12px', borderTop: '1px solid #eef2f0', paddingTop: '15px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
               <span style={{ color: 'var(--ink-secondary)' }}>Enterprise Name:</span>
-              <b>Sri Lakshmi Traders</b>
+              <b>Sri Lakshmi Groceries</b>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px' }}>
               <span style={{ color: 'var(--ink-secondary)' }}>Operating Location:</span>
