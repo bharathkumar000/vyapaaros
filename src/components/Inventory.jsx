@@ -377,8 +377,10 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
           </div>
         </div>
 
-        {/* Right Column: Supplier Procurement (Restock) Station */}
-        <div className="inv-procure-panel">
+        {/* Right Column wrapper */}
+        <div className="inv-right-column" style={{ display: 'flex', flexDirection: 'column', gap: '24px', alignSelf: 'start' }}>
+          {/* Right Column: Supplier Procurement (Restock) Station */}
+          <div className="inv-procure-panel">
           <div className="inv-panel-title" style={{ marginBottom: '16px' }}>
             <SVG.Truck />
             <h2>Supplier Restocking Station</h2>
@@ -568,8 +570,8 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
           )}
         </div>
 
-        {/* Right Column: Advance Bookings Station */}
-        <div className="inv-procure-panel" style={{ marginTop: '24px' }}>
+          {/* Right Column: Advance Bookings Station */}
+          <div className="inv-procure-panel">
           <div className="inv-panel-title" style={{ marginBottom: '16px' }}>
             <SVG.Book />
             <h2>Advance Bookings &amp; Stock Reservation</h2>
@@ -684,6 +686,7 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
               </div>
             ))}
           </div>
+        </div>
         </div>
       </div>
     </div>
