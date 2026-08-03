@@ -115,7 +115,7 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <a className="brand" href="#" onClick={(e) => { e.preventDefault(); setView('today'); }}>
-        <span className="brand-mark">V</span>
+        <span className="brand-mark brand-logo"><img src="/logo.png" alt="VyapaarOS logo" /></span>
         <span>Vyapaar<span>OS</span></span>
       </a>
 
