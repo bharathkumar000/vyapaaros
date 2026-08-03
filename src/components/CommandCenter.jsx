@@ -91,6 +91,7 @@ export default function CommandCenter({ branchState, onAsk }) {
   const [todoItems, setTodoItems] = useState([]);
   const activeIdxRef = useRef(0);
   const prevSignature = useRef(null);
+  const todosRef = useRef([]);
 
   const agents = useMemo(() => {
     if (!branchState) return [];
@@ -288,6 +289,7 @@ export default function CommandCenter({ branchState, onAsk }) {
           id: `audit-${a.id}`,
           type: 'compliance',
           priority: 'high',
+          verifyBy: 'audit',
           text: `Resolve Audit: ${a.title}`,
         });
       }
@@ -300,6 +302,7 @@ export default function CommandCenter({ branchState, onAsk }) {
           id: `restock-${p.id}`,
           type: 'restock',
           priority: 'medium',
+          verifyBy: 'proc',
           text: `Restock ${p.name} (${p.stock} ${p.unit} remaining)`,
         });
       }
@@ -312,6 +315,7 @@ export default function CommandCenter({ branchState, onAsk }) {
           id: `pay-${p.id}`,
           type: 'pay',
           priority: 'low',
+          verifyBy: 'cfo',
           text: `Pay ₹${p.amount.toLocaleString('en-IN')} to ${p.name}`,
         });
       }
@@ -338,6 +342,12 @@ export default function CommandCenter({ branchState, onAsk }) {
     });
   }, [branchState]);
 
+  // Keep a live ref of the checklist so the ticker can read it without
+  // triggering side-effects inside a state updater (avoids duplicate log keys).
+  useEffect(() => {
+    todosRef.current = todoItems;
+  }, [todoItems]);
+
   const handleToggleTodo = (id) => {
     setTodoItems(current =>
       current.map(t => {
@@ -349,62 +359,64 @@ export default function CommandCenter({ branchState, onAsk }) {
     );
   };
 
-  // Live tick: rotate active agent, stream completed jobs, and verify user actions
+// Live tick: rotate active agent, stream completed jobs, and verify user actions
   useEffect(() => {
     if (agents.length === 0) return;
+    let seq = 0;
+    const unique = (prefix) => `${prefix}-${Date.now()}-${(seq++).toString(36)}`;
+
     const timer = setInterval(() => {
       setNow(Date.now());
       activeIdxRef.current = (activeIdxRef.current + 1) % agents.length;
       const agent = agents[activeIdxRef.current];
-      
+      const ts = Date.now();
+
       if (agent) {
         setLog(prev => [
-          { id: `run-${Date.now()}`, agent: agent.name, text: `Completed: ${agent.summary.toLowerCase()}`, ts: Date.now() },
+          { id: unique('run'), agent: agent.name, text: `Completed: ${agent.summary.toLowerCase()}`, ts },
           ...prev,
         ].slice(0, 8));
       }
 
       // Check for user-clicked (done) but unverified tasks
-      setTodoItems(currentTodos => {
-        const pendingVerify = currentTodos.filter(t => t.isDone && !t.isVerified);
-        if (pendingVerify.length === 0) return currentTodos;
-
-        // Choose the first pending task to verify
+      const pendingVerify = todosRef.current.filter(t => t.isDone && !t.isVerified);
+      if (pendingVerify.length > 0) {
+        // Verify using the SAME employee that "owns" this task (by type),
+        // not whoever happens to be on rotation.
         const target = pendingVerify[0];
+        const verifier = agents.find(a => a.id === target.verifyBy) || agent;
         const nextCount = target.verifications + 1;
         const verified = nextCount >= 3;
 
-        if (agent) {
+        setLog(prev => [
+          {
+            id: unique('verify'),
+            agent: verifier.name,
+            text: `Verifying checklist item: "${target.text}" (${nextCount}/3)`,
+            ts,
+          },
+          ...prev,
+        ].slice(0, 8));
+
+        if (verified) {
           setLog(prev => [
-            { 
-              id: `verify-${Date.now()}`, 
-              agent: agent.name, 
-              text: `Verifying checklist item: "${target.text}" (${nextCount}/3)`, 
-              ts: Date.now() 
+            {
+              id: unique('verify-done'),
+              agent: verifier.name,
+              text: `Successfully verified and resolved: "${target.text}"`,
+              ts,
             },
             ...prev,
           ].slice(0, 8));
-
-          if (verified) {
-            setLog(prev => [
-              { 
-                id: `verify-done-${Date.now()}`, 
-                agent: agent.name, 
-                text: `Successfully verified and resolved: "${target.text}"`, 
-                ts: Date.now() 
-              },
-              ...prev,
-            ].slice(0, 8));
-          }
         }
 
-        return currentTodos.map(t => {
+        setTodoItems(current => current.map(t => {
           if (t.id === target.id) {
             return { ...t, verifications: nextCount, isVerified: verified };
           }
           return t;
-        });
-      });
+        }));
+      }
 
     }, 4000);
     return () => clearInterval(timer);
@@ -424,7 +436,7 @@ export default function CommandCenter({ branchState, onAsk }) {
       const agent = agents[activeIdxRef.current] || agents[0];
       if (agent) {
         setLog(prev => [
-          { id: `recompute-${Date.now()}`, agent: agent.name, text: `Recomputed all insights from live business data`, ts: Date.now() },
+          { id: `recompute-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, agent: agent.name, text: `Recomputed all insights from live business data`, ts: Date.now() },
           ...prev,
         ].slice(0, 8));
       }

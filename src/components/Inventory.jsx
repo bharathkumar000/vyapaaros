@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { api } from '../lib/api';
 
 /* ─── SVG Icons ─────────────────────────────────────────────── */
@@ -51,6 +51,11 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
   const [confirming, setConfirming] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
   const [trackingOrderId, setTrackingOrderId] = useState(null);
+  const restockPanelRef = useRef(null);
+
+  const scrollToRestock = () => {
+    restockPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const [bookingCustomer, setBookingCustomer] = useState('Rahul');
   const [bookingProductId, setBookingProductId] = useState('p-1');
@@ -69,6 +74,12 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
 
   const bookingProduct = inventory.find(p => p.id === bookingProductId) || inventory[0];
   const bookingEstimate = bookingProduct ? (bookingQty * bookingProduct.price) : 0;
+
+  const afterBooking = bookingProduct ? Math.max(0, bookingProduct.stock - bookingQty) : 0;
+  const lowBooking = bookingProduct && afterBooking < bookingProduct.safetyLimit;
+  const bookingPct = bookingProduct
+    ? Math.min(100, Math.round((afterBooking / Math.max(1, bookingProduct.safetyLimit * 2)) * 100))
+    : 0;
 
   const sectors = ['All', ...new Set(inventory.map(p => p.sector || 'General'))];
 
@@ -366,6 +377,7 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
                       className="inv-quick-buy-btn"
                       onClick={() => {
                         setPurchaseProdId(prod.id);
+                        scrollToRestock();
                       }}
                     >
                       <SVG.Plus /> Restock SKU
@@ -379,8 +391,8 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
 
         {/* Right Column wrapper */}
         <div className="inv-right-column" style={{ display: 'flex', flexDirection: 'column', gap: '24px', alignSelf: 'start' }}>
-          {/* Right Column: Supplier Procurement (Restock) Station */}
-          <div className="inv-procure-panel">
+{/* Right Column: Supplier Procurement (Restock) Station */}
+        <div className="inv-procure-panel" ref={restockPanelRef}>
           <div className="inv-panel-title" style={{ marginBottom: '16px' }}>
             <SVG.Truck />
             <h2>Supplier Restocking Station</h2>
@@ -473,6 +485,17 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
                 <span className="inv-verdict-status">{statusLabel(aiVerdict.status)}</span>
               </div>
               <p className="inv-verdict-summary">{aiVerdict.summary}</p>
+              <div className="inv-verdict-lines">
+                {aiVerdict.lines.map((line, i) => (
+                  <div key={i} className={`inv-vline inv-vline-${line.flag}`}>
+                    <div className="inv-vline-top">
+                      <b>{line.name}</b>
+                      <span>{line.quantity} {line.unit}</span>
+                    </div>
+                    <p>{line.note}</p>
+                  </div>
+                ))}
+              </div>
               <div className="inv-verdict-cost">
                 <span>Order cost: <b>₹{aiVerdict.totalCost.toLocaleString('en-IN')}</b></span>
                 <span>Cash in bank: <b>₹{aiVerdict.cash.toLocaleString('en-IN')}</b></span>
@@ -571,122 +594,169 @@ export default function Inventory({ selectedBranchId, branchState, onStateUpdate
         </div>
 
           {/* Right Column: Advance Bookings Station */}
-          <div className="inv-procure-panel">
-          <div className="inv-panel-title" style={{ marginBottom: '16px' }}>
-            <SVG.Book />
-            <h2>Advance Bookings &amp; Stock Reservation</h2>
-          </div>
+          <div className="inv-procure-panel inv-booking-panel">
 
-          <div className="inv-info-card">
-            <p className="inv-info-title">🧾 Pre-orders from Your Customers</p>
-            <p className="inv-info-desc">
-              Log customer advance bookings, check stock safety with AI, and dispatch on delivery. Advance payments add to cash; stock deducts on delivery and unpaid balances sync to Khata Ledger.
-            </p>
-          </div>
-
-          {/* ── Booking Form ─────────────────────────── */}
-          <form onSubmit={createBooking}>
-            <div className="inv-form-field">
-              <label>Customer</label>
-              <select value={bookingCustomer} onChange={(e) => setBookingCustomer(e.target.value)} className="inv-select">
-                <option value="Rahul">Rahul (Standard)</option>
-                <option value="Mahaveer Stores">Mahaveer Stores (Wholesale)</option>
-                <option value="Sunil Traders">Sunil Traders (Credit account)</option>
-                <option value="Walk-in Customer">Walk-in Customer</option>
-              </select>
-            </div>
-
-            <div className="inv-form-field">
-              <label>Product to Book</label>
-              <select value={bookingProductId} onChange={(e) => setBookingProductId(e.target.value)} className="inv-select">
-                {inventory.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.origin}) — ₹{p.price}/{p.unit}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="inv-form-field">
-              <label>Quantity to Book ({bookingProduct?.unit})</label>
-              <div className="inv-qty-stepper">
-                <button type="button" onClick={() => setBookingQty(q => Math.max(10, q - 10))}>−</button>
-                <input type="number" value={bookingQty} onChange={(e) => setBookingQty(Number(e.target.value) || 10)} className="inv-qty-input" />
-                <button type="button" onClick={() => setBookingQty(q => q + 10)}>+</button>
-              </div>
-            </div>
-
-            <div className="inv-form-field">
-              <label>Target Delivery Date</label>
-              <input type="text" value={bookingDeliveryDate} onChange={(e) => setBookingDeliveryDate(e.target.value)} className="inv-qty-input" style={{ width: '100%', height: '38px' }} />
-            </div>
-
-            <div className="inv-form-field">
-              <label>Advance Payment Paid (₹)</label>
-              <input type="number" value={bookingAdvance} onChange={(e) => setBookingAdvance(parseInt(e.target.value) || 0)} className="inv-qty-input" style={{ width: '100%', height: '38px' }} />
-            </div>
-
-            <div className="inv-cost-summary">
-              <span>Total Est. Order Value:</span>
-              <b className="inv-total-cost">₹{bookingEstimate.toLocaleString('en-IN')}</b>
-            </div>
-          </form>
-
-          <button type="button" className="inv-ai-check-btn" onClick={checkBookingAi} disabled={checkingBookingAi}>
-            {checkingBookingAi ? '🤖 AI analyzing…' : '🤖 AI Check: Enough stock?'}
-          </button>
-
-          {bookingAi && bookingAi.success && (
-            <div className={`inv-verdict ${bookingAi.isSafe ? 'inv-verdict-ok' : 'inv-verdict-warn'}`}>
-              <div style={{ fontWeight: 700, marginBottom: '6px' }}>
-                {bookingAi.isSafe ? '✓ AI Inventory Clear' : '⚠ AI Stock Warning'}
-              </div>
-              <p className="inv-verdict-summary" style={{ margin: 0 }}>{bookingAi.message}</p>
-              <p className="inv-supplier-tips" style={{ margin: '8px 0 0' }}>{bookingAi.dealerAdvice}</p>
-            </div>
-          )}
-
-          <button type="button" className="inv-confirm-btn" onClick={createBooking} disabled={bookingSaving || !bookingProduct || bookingQty <= 0}>
-            {bookingSaving ? 'Saving booking…' : `✓ Book Order & Allocate (₹${bookingEstimate.toLocaleString('en-IN')})`}
-          </button>
-
-          {/* ── Active Bookings List ─────────────────── */}
-          <div className="inv-orders-head">
-            <h3>🧾 Active Advance Bookings</h3>
-            <span className="inv-order-meta">{bookings.length} booking{bookings.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div className="inv-orders-list">
-            {bookings.length === 0 ? (
-              <p className="inv-cart-empty">No advance bookings yet. Create one above.</p>
-            ) : bookings.map((bk) => (
-              <div key={bk.id} className="inv-order-card">
-                <div className="inv-order-top">
-                  <div>
-                    <b className="inv-order-id">{bk.name}</b>
-                    <span className="inv-order-meta">Booked {bk.date} · Deliver {bk.deliveryDate}</span>
-                  </div>
-                  <span className="inv-order-status" style={{ background: bk.status === 'delivered' ? '#16a34a' : '#d97706' }}>
-                    {statusLabel(bk.status)}
-                  </span>
+            {/* Panel header */}
+            <div className="bk-header">
+              <div className="bk-header-left">
+                <span className="bk-header-icon"><SVG.Book /></span>
+                <div>
+                  <h2>Advance Bookings &amp; Stock Reservation</h2>
+                  <p>Pre-orders from customers · AI-verified stock safety · delivery dispatch</p>
                 </div>
-                <div className="inv-order-lines">
-                  <span>{bk.quantity} {bk.unit} × {bk.productName}</span>
-                  <span>Advance: <b>₹{bk.advance.toLocaleString('en-IN')}</b></span>
+              </div>
+              <span className="bk-count-pill">{bookings.length}</span>
+            </div>
+
+            {/* New booking form card */}
+            <div className="bk-form-card">
+              <div className="bk-form-title">
+                <span>Create Pre-Order</span>
+                <small>Advance adds to cash · Stock deducts on delivery · Balance syncs to Khata</small>
+              </div>
+
+              <div className="bk-form-grid">
+                <div className="inv-form-field">
+                  <label>Customer</label>
+                  <select value={bookingCustomer} onChange={(e) => setBookingCustomer(e.target.value)} className="inv-select">
+                    <option value="Rahul">Rahul (Standard)</option>
+                    <option value="Mahaveer Stores">Mahaveer Stores (Wholesale)</option>
+                    <option value="Sunil Traders">Sunil Traders (Credit account)</option>
+                    <option value="Walk-in Customer">Walk-in Customer</option>
+                  </select>
                 </div>
-                <div className="inv-order-foot">
-                  <b>₹{(bk.quantity * (inventory.find(p => p.id === bk.productId)?.price || 0)).toLocaleString('en-IN')}</b>
-                  <div className="inv-order-actions">
-                    {bk.status !== 'delivered' && (
-                      <button className="inv-advance-btn" onClick={() => deliverBooking(bk.id)} disabled={deliveringId === bk.id}>
-                        {deliveringId === bk.id ? 'Delivering…' : 'Deliver & Deduct Stock'}
-                      </button>
-                    )}
+
+                <div className="inv-form-field">
+                  <label>Product to Book</label>
+                  <select value={bookingProductId} onChange={(e) => setBookingProductId(e.target.value)} className="inv-select">
+                    {inventory.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.origin}) — ₹{p.price}/{p.unit}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="inv-form-field">
+                  <label>Quantity to Book ({bookingProduct?.unit})</label>
+                  <div className="inv-qty-stepper">
+                    <button type="button" onClick={() => setBookingQty(q => Math.max(10, q - 10))}>−</button>
+                    <input type="number" value={bookingQty} onChange={(e) => setBookingQty(Number(e.target.value) || 10)} className="inv-qty-input" />
+                    <button type="button" onClick={() => setBookingQty(q => q + 10)}>+</button>
                   </div>
                 </div>
+
+                <div className="inv-form-field">
+                  <label>Advance Payment (₹)</label>
+                  <input
+                    type="number"
+                    value={bookingAdvance}
+                    onChange={(e) => setBookingAdvance(parseInt(e.target.value) || 0)}
+                    className="inv-qty-input bk-adv-input"
+                    placeholder="0"
+                  />
+                </div>
               </div>
-            ))}
+
+              <div className="inv-form-field">
+                <label>Target Delivery Date</label>
+                <input
+                  type="text"
+                  value={bookingDeliveryDate}
+                  onChange={(e) => setBookingDeliveryDate(e.target.value)}
+                  className="inv-qty-input bk-date-input"
+                />
+              </div>
+
+              {/* Live stock reservation meter */}
+              <div className="bk-stock-meter">
+                <div className="bk-stock-head">
+                  <span className="bk-stock-label">Stock left after this booking</span>
+                  <b className={lowBooking ? 'bk-warn' : 'bk-ok'}>
+                    {afterBooking} {bookingProduct?.unit}
+                  </b>
+                </div>
+                <div className="bk-meter-bg">
+                  <div
+                    className="bk-meter-fill"
+                    style={{ width: `${bookingPct}%`, background: lowBooking ? '#ef4444' : '#16a34a' }}
+                  />
+                </div>
+                <div className="bk-stock-foot">
+                  <span>Current: {bookingProduct?.stock} {bookingProduct?.unit}</span>
+                  <span>Safety limit: {bookingProduct?.safetyLimit} {bookingProduct?.unit}</span>
+                </div>
+              </div>
+
+              <div className="bk-estimate">
+                <span>Total Est. Order Value</span>
+                <b>₹{bookingEstimate.toLocaleString('en-IN')}</b>
+              </div>
+
+              <div className="bk-actions">
+                <button type="button" className="inv-ai-check-btn" onClick={checkBookingAi} disabled={checkingBookingAi}>
+                  {checkingBookingAi ? '🤖 AI analyzing…' : '🤖 AI Check: Enough stock?'}
+                </button>
+                <button
+                  type="button"
+                  className="inv-confirm-btn bk-confirm"
+                  onClick={createBooking}
+                  disabled={bookingSaving || !bookingProduct || bookingQty <= 0}
+                >
+                  {bookingSaving ? 'Saving booking…' : `Book & Allocate · ₹${bookingEstimate.toLocaleString('en-IN')}`}
+                </button>
+              </div>
+
+              {bookingAi && bookingAi.success && (
+                <div className={`bk-verdict ${bookingAi.isSafe ? 'bk-verdict-ok' : 'bk-verdict-warn'}`}>
+                  <div className="bk-verdict-head">
+                    <span className="bk-verdict-ico">{bookingAi.isSafe ? '✓' : '⚠'}</span>
+                    <b>{bookingAi.isSafe ? 'AI Inventory Clear' : 'AI Stock Warning'}</b>
+                  </div>
+                  <p className="bk-verdict-msg">{bookingAi.message}</p>
+                  <p className="bk-verdict-dealer">💡 {bookingAi.dealerAdvice}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Active bookings list */}
+            <div className="bk-list-head">
+              <h3>Active Advance Bookings</h3>
+              <span className="bk-list-count">{bookings.length}</span>
+            </div>
+
+            <div className="bk-list">
+              {bookings.length === 0 ? (
+                <p className="inv-cart-empty bk-empty">No advance bookings yet. Create one above.</p>
+              ) : bookings.map((bk) => (
+                <div key={bk.id} className="bk-card">
+                  <div className="bk-card-top">
+                    <span className="bk-avatar">{bk.name.charAt(0).toUpperCase()}</span>
+                    <div className="bk-card-main">
+                      <b className="bk-name">{bk.name}</b>
+                      <span className="bk-meta">Booked {bk.date} · Deliver {bk.deliveryDate}</span>
+                    </div>
+                    <span className={`bk-status ${bk.status}`}>{statusLabel(bk.status)}</span>
+                  </div>
+                  <div className="bk-card-detail">
+                    <span className="bk-qty">{bk.quantity} {bk.unit} × {bk.productName}</span>
+                    <div className="bk-money-row">
+                      <span>Advance <b className="bk-adv">₹{bk.advance.toLocaleString('en-IN')}</b></span>
+                      <b className="bk-total">₹{(bk.quantity * (inventory.find(p => p.id === bk.productId)?.price || 0)).toLocaleString('en-IN')}</b>
+                    </div>
+                  </div>
+                  {bk.status !== 'delivered' && (
+                    <button className="bk-deliver-btn" onClick={() => deliverBooking(bk.id)} disabled={deliveringId === bk.id}>
+                      {deliveringId === bk.id ? 'Delivering…' : 'Deliver & Deduct Stock'}
+                    </button>
+                  )}
+                  {bk.status === 'delivered' && (
+                    <span className="bk-delivered-flag">✓ Delivered · stock deducted</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
         </div>
       </div>
     </div>

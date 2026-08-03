@@ -394,22 +394,42 @@ export async function POST(request, { params }) {
       const cost = product.cost * quantity;
       totalCost += cost;
       const marginPct = product.price > 0 ? Math.round(((product.price - product.cost) / product.price) * 100) : 0;
-      const low = product.stock < product.safetyLimit;
-      const overStock = product.stock > product.safetyLimit * 4;
 
+      const safety = Math.max(1, product.safetyLimit || 1);
+      const unit = product.unit || 'units';
+      const coverage = product.stock / safety;               // how many × safety limit is already on hand
+      const projected = product.stock + quantity;            // stock after this order
+      const projectedCoverage = projected / safety;
+      // A comfortable ceiling is ~2× the safety limit; beyond that, extra stock only ties up cash.
+      const maxUseful = Math.floor(safety * 2);
+      const recommendQty = Math.max(0, maxUseful - product.stock);
+
+      // 1) Set the line flag based on current stock health.
       let flag = 'ok';
-      let note = `Healthy margin of ${marginPct}%. Stock ${product.stock} ${product.unit} (safety limit ${product.safetyLimit} ${product.unit}).`;
-      if (low) {
-        flag = 'low-stock';
-        note = `Low stock (${product.stock} / ${product.safetyLimit} ${product.unit}). Restocking is a priority.`;
-      } else if (overStock) {
+      let note;
+      if (product.stock < safety) {
+        flag = 'needs';
+        note = `Low stock: only ${product.stock} ${unit} left (safety limit ${safety}). This restock is genuinely needed.`;
+      } else if (product.stock <= safety * 1.5) {
+        flag = 'topup';
+        note = `Healthy stock of ${product.stock} ${unit} (~${coverage.toFixed(1)}× safety limit). A small top-up is fine.`;
+      } else {
         flag = 'overstock';
-        note = `Already high stock (${product.stock} ${product.unit}). Consider trimming the quantity to avoid tying up cash.`;
-      } else if (marginPct < 10) {
-        flag = 'thin-margin';
-        note = `Thin margin (~${marginPct}%). Recheck retail pricing before buying more.`;
+        note = `Already well stocked at ${product.stock} ${unit} (~${coverage.toFixed(1)}× safety limit). Ordering more mostly ties up cash.`;
       }
-      lines.push({ productId, name: product.name, quantity, unit: product.unit, total: cost, margin: marginPct, stock: product.stock, safetyLimit: product.safetyLimit, flag, note });
+
+      // 2) Override when the ORDER ITSELF is too big for the demand.
+      if (projected > safety * 2.5) {
+        flag = 'oversize';
+        note = recommendQty > 0
+          ? `This order would push stock to ${projected} ${unit} (~${projectedCoverage.toFixed(1)}× safety limit). Cap this item at ~${recommendQty} ${unit}.`
+          : `Stock is already ${product.stock} ${unit}; you don't need to order any more of this item.`;
+      } else if (flag === 'ok' && quantity > recommendQty && recommendQty > 0 && product.stock > safety) {
+        flag = 'oversize';
+        note = `You only need about ${recommendQty} ${unit} more to hit a comfortable level; ${quantity} ${unit} is more than useful.`;
+      }
+
+      lines.push({ productId, name: product.name, quantity, unit, total: cost, margin: marginPct, stock: product.stock, safetyLimit: safety, coverage: +coverage.toFixed(1), projectedCoverage: +projectedCoverage.toFixed(1), recommendQty, flag, note });
     }
 
     if (lines.length === 0) return json({ error: 'No valid items in order' }, 400);
@@ -425,19 +445,40 @@ export async function POST(request, { params }) {
       else if (line.productId === 'p-5') supplierTips.push('Golden Sugar Mill: ₹41/kg, Net 15 with 2% prompt-payment discount.');
     }
 
+    // 3) Score: start at 100 and deduct honestly per problem. A clean restock of
+    //    low stock scores high; ordering excess stock drops it fast.
     let score = 100;
     const issues = [];
+    for (const line of lines) {
+      if (line.flag === 'topup') score -= 5;
+      else if (line.flag === 'overstock') score -= 20;
+      else if (line.flag === 'oversize') score -= 25;
+      if (line.margin < 10) { score -= 8; issues.push(`${line.name}: thin margin (${line.margin}%).`); }
+    }
+
     if (!budgetOk) {
       score -= 25;
       issues.push(`Total cost ₹${totalCost.toLocaleString('en-IN')} exceeds cash in bank ₹${cash.toLocaleString('en-IN')}.`);
     }
     for (const line of lines) {
-      if (line.flag === 'overstock') { score -= 15; issues.push(`${line.name}: already over-stocked, add in smaller lots.`); }
-      if (line.flag === 'thin-margin') { score -= 10; issues.push(`${line.name}: thin margin (${line.margin}%).`); }
-      if (line.flag === 'low-stock') score += 5;
+      if (line.flag === 'overstock') issues.push(`${line.name}: already ~${line.coverage}× safety; skip or buy in very small lots.`);
+      if (line.flag === 'oversize') issues.push(`${line.name}: quantity too high${line.recommendQty > 0 ? ` — limit to ~${line.recommendQty} ${line.unit}` : ' — no stock needed'}.`);
     }
-    score = Math.max(0, Math.min(100, Math.round(score)));
-    const status = score >= 80 ? 'recommended' : score >= 55 ? 'caution' : 'warning';
+    score = Math.max(0, Math.min(100, score));
+    const totalUseful = lines.every((l) => l.flag === 'needs' || l.flag === 'topup');
+    const status = (totalUseful && budgetOk && score >= 80) ? 'recommended' : score >= 55 ? 'caution' : 'warning';
+
+    let summary;
+    if (!totalUseful && issues.length > 0) {
+      const first = issues[0];
+      summary = `Not a smart buy as-is — ${first} Trim the flagged quantities and re-check.`;
+    } else if (score >= 80) {
+      summary = `Good purchase. Order worth ₹${totalCost.toLocaleString('en-IN')} fits the budget (₹${cashLeft.toLocaleString('en-IN')} left) and stock actually needs a top-up.`;
+    } else if (score >= 55) {
+      summary = `Usable, but ${issues.length} point(s) need attention — mainly excess quantity. Trim and re-check.`;
+    } else {
+      summary = `Not recommended. You already hold enough stock; this order mostly ties up cash. Trim heavily or skip.`;
+    }
 
     return json({
       success: true,
@@ -447,15 +488,10 @@ export async function POST(request, { params }) {
       cash,
       cashLeft,
       budgetOk,
-      issues,
+      issues: issues.slice(0, 8),
       supplierTips,
       lines,
-      summary:
-        score >= 80
-          ? `Good purchase. Order worth ₹${totalCost.toLocaleString('en-IN')} fits the budget with ₹${cashLeft.toLocaleString('en-IN')} left in bank.`
-          : score >= 55
-            ? `Decent, but review the ${issues.length} flagged point(s) before confirming.`
-            : `Not recommended as-is. Fix the flagged issues or trim quantities.`,
+      summary,
     });
   }
 
